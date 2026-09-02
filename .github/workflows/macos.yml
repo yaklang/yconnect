@@ -1,0 +1,100 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-render:
+    name: Build, test, render, package
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.build|DerivedData)(/|$)|\.app/|\.dmg$'; then
+            echo "Tracked build artifact detected" >&2
+            exit 1
+          fi
+          bash -n script/*.sh
+
+      - name: Build release
+        run: |
+          swift --version
+          swift build --package-path darwin --configuration release
+
+      - name: Test
+        run: swift test --package-path darwin
+
+      - name: Render UI previews
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$(swift build --package-path darwin --configuration release --show-bin-path)/YConnect"
+          mkdir -p artifacts
+          "$BIN" --render-widget artifacts/widget.png
+          "$BIN" --render-manager artifacts/manager.png --section openCode
+          "$BIN" --render-edge-dock artifacts/edge-dock.png
+          "$BIN" --render-tray-icon artifacts/tray-icon.png
+          test "$(sips -g pixelWidth artifacts/widget.png | awk '/pixelWidth/ {print $2}')" = "390"
+          widget_height="$(sips -g pixelHeight artifacts/widget.png | awk '/pixelHeight/ {print $2}')"
+          test "$widget_height" -ge 300
+          test "$widget_height" -le 600
+          test "$(sips -g pixelWidth artifacts/manager.png | awk '/pixelWidth/ {print $2}')" = "1080"
+          test "$(sips -g pixelHeight artifacts/manager.png | awk '/pixelHeight/ {print $2}')" = "720"
+          test "$(sips -g pixelWidth artifacts/edge-dock.png | awk '/pixelWidth/ {print $2}')" = "158"
+          test "$(sips -g pixelHeight artifacts/edge-dock.png | awk '/pixelHeight/ {print $2}')" = "112"
+          test "$(sips -g pixelWidth artifacts/tray-icon.png | awk '/pixelWidth/ {print $2}')" = "220"
+          test "$(sips -g pixelHeight artifacts/tray-icon.png | awk '/pixelHeight/ {print $2}')" = "220"
+
+      - name: Ensure ImageMagick
+        run: command -v magick >/dev/null 2>&1 || brew install imagemagick
+
+      - name: Package development app
+        run: ./script/package-macos.sh --dev --dmg
+
+      - name: Verify app bundle and mounted DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          case "$(uname -m)" in
+            arm64) arch=arm64 ;;
+            x86_64) arch=amd64 ;;
+            *) echo "Unsupported runner architecture" >&2; exit 1 ;;
+          esac
+          app="dist/darwin-dev-$arch/YConnectDev.app"
+          dmg="dist/YConnectDev-$version-darwin-$arch.dmg"
+          codesign --verify --deep --strict "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$GITHUB_RUN_NUMBER"
+          mount_dir="$(mktemp -d)"
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          mounted_app="$mount_dir/YConnectDev.app"
+          test -x "$mounted_app/Contents/MacOS/YConnect"
+          codesign --verify --deep --strict "$mounted_app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mounted_app/Contents/Info.plist)" = "io.yaklang.yconnect.dev"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yconnect-macos-ci
+          path: |
+            artifacts/*.png
+            dist/YConnectDev-*-darwin-*.dmg
+          if-no-files-found: error
+          retention-days: 14
