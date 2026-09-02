@@ -2,8 +2,13 @@ import AppKit
 import SwiftUI
 
 extension Brand {
-    static let orange = Color(red: 0.949, green: 0.545, blue: 0.267)
-    static let orangeNS = NSColor(red: 0.949, green: 0.545, blue: 0.267, alpha: 1)
+    // Muted terracotta keeps the YakCool warmth without reusing YTray's vivid orange.
+    static let accent = Color(red: 0.780, green: 0.416, blue: 0.333)
+    static let accentNS = NSColor(red: 0.780, green: 0.416, blue: 0.333, alpha: 1)
+    // The darker fill preserves readable white labels on primary controls.
+    static let primaryFill = Color(red: 0.706, green: 0.365, blue: 0.294)
+    static let primaryFillNS = NSColor(red: 0.706, green: 0.365, blue: 0.294, alpha: 1)
+    static let primaryFillPressed = Color(red: 0.663, green: 0.310, blue: 0.247)
     static let green = Color(red: 0.19, green: 0.65, blue: 0.40)
 }
 
@@ -25,7 +30,7 @@ enum WidgetMetrics {
     static func height(for store: YConnectStore) -> CGFloat {
         if store.phase == .restoring { return 250 }
         if !store.isAuthenticated { return 430 }
-        let base: CGFloat = store.isAccountMode ? 360 : 325
+        let base: CGFloat = store.isAccountMode ? 395 : 360
         return base + (store.operationMessage == nil ? 0 : 39)
     }
 }
@@ -38,7 +43,7 @@ final class WidgetPresentationState: ObservableObject {
 enum ManagerSection: String, CaseIterable, Identifiable {
     case overview
     case apiKeys
-    case openCode
+    case clients
     case diagnostics
     case settings
 
@@ -47,7 +52,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
         switch self {
         case .overview: return "账户概览"
         case .apiKeys: return "API Keys"
-        case .openCode: return "OpenCode"
+        case .clients: return "客户端适配"
         case .diagnostics: return "连接测试"
         case .settings: return "设置"
         }
@@ -56,7 +61,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
         switch self {
         case .overview: return "gauge.with.dots.needle.67percent"
         case .apiKeys: return "key.horizontal"
-        case .openCode: return "terminal"
+        case .clients: return "arrow.triangle.2.circlepath.circle"
         case .diagnostics: return "stethoscope"
         case .settings: return "gearshape"
         }
@@ -69,14 +74,14 @@ final class ManagerNavigation: ObservableObject {
     var selectedSection: ManagerSection { selection ?? .overview }
 }
 
-struct SmallOrangeButtonStyle: ButtonStyle {
+struct SmallPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 11)
             .frame(height: 30)
-            .background(Brand.orange.opacity(configuration.isPressed ? 0.76 : 1))
+            .background(configuration.isPressed ? Brand.primaryFillPressed : Brand.primaryFill)
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
@@ -154,6 +159,7 @@ struct WidgetView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .frame(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store))
+        .tint(Brand.accent)
         .alert("YConnect", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
@@ -167,7 +173,7 @@ struct WidgetView: View {
     private var header: some View {
         HStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(Brand.orange.gradient)
+                RoundedRectangle(cornerRadius: 8).fill(Brand.accent.gradient)
                 Image(systemName: "link").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
             }
             .frame(width: 30, height: 30)
@@ -195,7 +201,7 @@ struct WidgetView: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-            .foregroundStyle(presentation.isPinned || store.isBusy ? Brand.orange : .secondary)
+            .foregroundStyle(presentation.isPinned || store.isBusy ? Brand.accent : .secondary)
             .disabled(store.isBusy)
             .help(store.isBusy ? "操作期间已临时固定" : "固定小组件")
             Button(action: closeWidget) {
@@ -234,7 +240,7 @@ struct WidgetView: View {
                         Label("打开扫码登录", systemImage: "arrow.up.right.square")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(SmallOrangeButtonStyle())
+                    .buttonStyle(SmallPrimaryButtonStyle())
                 }
             } else {
                 loginCard(
@@ -250,14 +256,14 @@ struct WidgetView: View {
                         else { Label("验证并连接", systemImage: "checkmark.shield") }
                     }
                     .frame(maxWidth: .infinity)
-                    .buttonStyle(SmallOrangeButtonStyle())
+                    .buttonStyle(SmallPrimaryButtonStyle())
                     .disabled(store.isBusy || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 
             HStack(spacing: 6) {
                 Image(systemName: "lock.shield")
-                Text("凭证不写入偏好、日志或 OpenCode JSON")
+                Text("凭证不写入偏好、日志或客户端配置明文")
             }
             .font(.system(size: 10.5, weight: .medium))
             .foregroundStyle(.secondary)
@@ -290,12 +296,12 @@ struct WidgetView: View {
                 .frame(maxWidth: .infinity)
                 .buttonStyle(SmallSecondaryButtonStyle())
 
-                Button { Task { await store.applyOpenCodeConfiguration() } } label: {
+                Button { Task { await store.applySelectedClientConfiguration() } } label: {
                     if store.isBusy { ProgressView().controlSize(.small) }
-                    else { Label("应用到 OpenCode", systemImage: "terminal") }
+                    else { Label("应用到 \(store.selectedClientDescriptor.shortName)", systemImage: store.selectedClientDescriptor.symbol) }
                 }
                 .frame(maxWidth: .infinity)
-                .buttonStyle(SmallOrangeButtonStyle())
+                .buttonStyle(SmallPrimaryButtonStyle())
                 .disabled(store.isBusy)
             }
 
@@ -390,9 +396,22 @@ struct WidgetView: View {
                 .labelsHidden()
                 .frame(maxWidth: .infinity)
             }
+            HStack(spacing: 7) {
+                Image(systemName: store.selectedClientDescriptor.symbol)
+                Text("目标客户端")
+                Spacer()
+                Picker("目标客户端", selection: $store.selectedClientID) {
+                    ForEach(store.clientDescriptors) { client in
+                        Text(client.shortName).tag(client.id)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
             HStack {
                 Image(systemName: "cube")
-                Text("OpenCode 模型")
+                Text("兼容模型")
                 Spacer()
                 Text(store.selectedModelName).lineLimit(1)
             }
@@ -410,7 +429,7 @@ struct WidgetView: View {
         VStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 32, weight: .medium))
-                .foregroundStyle(Brand.orange)
+                .foregroundStyle(Brand.accent)
                 .frame(height: 40)
             Text(title).font(.system(size: 15, weight: .semibold))
             Text(detail)
@@ -422,7 +441,7 @@ struct WidgetView: View {
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Brand.orange.opacity(0.22)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Brand.accent.opacity(0.22)))
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -452,7 +471,7 @@ struct ManagerView: View {
     let beginAccountLogin: () -> Void
     let setEdgeDockEnabled: (Bool) -> Void
     @State private var standaloneKey = ""
-    @State private var newKeyLabel = "OpenCode"
+    @State private var newKeyLabel = "YConnect"
     @State private var redeemCode = ""
     @State private var pendingDelete: APIKeyRecord?
     @State private var confirmLiveTest = false
@@ -489,6 +508,7 @@ struct ManagerView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 940, minHeight: 640)
+        .tint(Brand.accent)
         .alert("YConnect", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
@@ -540,7 +560,7 @@ struct ManagerView: View {
             switch navigation.selectedSection {
             case .overview: overview
             case .apiKeys: keys
-            case .openCode: openCode
+            case .clients: clients
             case .diagnostics: diagnostics
             case .settings: settings
             }
@@ -564,7 +584,7 @@ struct ManagerView: View {
                         standaloneKey = ""
                         Task { await store.signIn(apiKey: value) }
                     }
-                    .buttonStyle(SmallOrangeButtonStyle())
+                    .buttonStyle(SmallPrimaryButtonStyle())
                     .disabled(store.isBusy || standaloneKey.isEmpty)
                 }
                 .padding(18).frame(maxWidth: .infinity, minHeight: 175, alignment: .topLeading)
@@ -584,7 +604,7 @@ struct ManagerView: View {
             Label(title, systemImage: symbol).font(.system(size: 15, weight: .semibold))
             Text(description).font(.system(size: 12)).foregroundStyle(.secondary)
             Spacer()
-            Button("打开扫码登录", action: action).buttonStyle(SmallOrangeButtonStyle())
+            Button("打开扫码登录", action: action).buttonStyle(SmallPrimaryButtonStyle())
         }
         .padding(18).frame(maxWidth: .infinity, minHeight: 175, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
@@ -595,11 +615,11 @@ struct ManagerView: View {
             HStack(spacing: 14) {
                 overviewMetric("连接状态", "已连接", "checkmark.shield.fill", Brand.green)
                 if store.isAccountMode {
-                    overviewMetric("可用余额", store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "—", "creditcard.fill", Brand.orange)
-                    overviewMetric("API Keys", "\(store.accountKeys.count) / \(store.dashboard?.apiKeyLimit ?? 0)", "key.horizontal.fill", .blue)
+                    overviewMetric("可用余额", store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "—", "creditcard.fill", Brand.accent)
+                    overviewMetric("API Keys", "\(store.accountKeys.count) / \(store.dashboard?.apiKeyLimit ?? 0)", "key.horizontal.fill", Brand.accent.opacity(0.78))
                 } else {
-                    overviewMetric("额度状态", store.businessKeyInfo?.quota.display ?? "—", "chart.pie.fill", Brand.orange)
-                    overviewMetric("可用模型", "\(store.businessKeyModels.count)", "cube.fill", .blue)
+                    overviewMetric("额度状态", store.businessKeyInfo?.quota.display ?? "—", "chart.pie.fill", Brand.accent)
+                    overviewMetric("可用模型", "\(store.businessKeyModels.count)", "cube.fill", Brand.accent.opacity(0.78))
                 }
             }
 
@@ -612,7 +632,7 @@ struct ManagerView: View {
                             redeemCode = ""
                             Task { _ = await store.redeem(code: value) }
                         }
-                        .buttonStyle(SmallOrangeButtonStyle())
+                        .buttonStyle(SmallPrimaryButtonStyle())
                         .disabled(store.isBusy || redeemCode.replacingOccurrences(of: " ", with: "").count < 12)
                     }
                     .padding(.top, 6)
@@ -642,7 +662,7 @@ struct ManagerView: View {
                     Button { Task { _ = await store.createAPIKey(label: newKeyLabel) } } label: {
                         Label("创建 API Key", systemImage: "plus")
                     }
-                    .buttonStyle(SmallOrangeButtonStyle())
+                    .buttonStyle(SmallPrimaryButtonStyle())
                     .disabled(store.isBusy || newKeyLabel.trimmingCharacters(in: .whitespaces).isEmpty)
                     Spacer()
                     Text("\(store.accountKeys.count) / \(store.dashboard?.apiKeyLimit ?? 0)")
@@ -677,7 +697,7 @@ struct ManagerView: View {
                 store.selectedAccountKeyID = key.id
             } label: {
                 Image(systemName: store.selectedAccountKeyID == key.id ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(store.selectedAccountKeyID == key.id ? Brand.orange : .secondary)
+                    .foregroundStyle(store.selectedAccountKeyID == key.id ? Brand.accent : .secondary)
             }
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 4) {
@@ -698,31 +718,93 @@ struct ManagerView: View {
             Button { pendingDelete = key } label: {
                 Image(systemName: "trash").frame(width: 28, height: 28)
             }
-            .buttonStyle(PlainHoverButtonStyle()).foregroundStyle(.red).help("删除")
+            .buttonStyle(PlainHoverButtonStyle()).foregroundStyle(Brand.primaryFill).help("删除")
         }
         .padding(14)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(store.selectedAccountKeyID == key.id ? Brand.orange.opacity(0.45) : Color.primary.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(store.selectedAccountKeyID == key.id ? Brand.accent.opacity(0.45) : Color.primary.opacity(0.07)))
     }
 
-    private var openCode: some View {
+    private var clients: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "terminal.fill").font(.system(size: 28)).foregroundStyle(Brand.orange)
+                Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 28)).foregroundStyle(Brand.accent)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("一键连接 OpenCode").font(.system(size: 17, weight: .semibold))
-                    Text("YConnect 只修改 YakCool provider 与默认模型；原配置会先完整备份。API Key 存在权限为 0600 的独立文件中，JSON 使用文件引用。")
+                    Text("一套 YakCool 凭证，连接不同本地客户端").font(.system(size: 17, weight: .semibold))
+                    Text("每个适配器按客户端原生协议生成配置。只改 YakCool 节点与默认模型，写前完整备份；密钥放在权限为 0600 的独立文件，并通过客户端官方支持的 file / helper / command 机制读取。")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(18).background(Brand.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(18).background(Brand.accent.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
 
-            GroupBox("目标") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 10)], spacing: 10) {
+                ForEach(store.clientDescriptors) { client in
+                    Button { store.selectedClientID = client.id } label: {
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack {
+                                Image(systemName: client.symbol).font(.system(size: 16, weight: .semibold))
+                                Spacer()
+                                if client.id == store.selectedClientID {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.accent)
+                                }
+                            }
+                            Text(client.shortName).font(.system(size: 13, weight: .semibold))
+                            Text(client.protocolSummary).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        .padding(11)
+                        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .background(client.id == store.selectedClientID ? Brand.accent.opacity(0.10) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(client.id == store.selectedClientID ? Brand.accent.opacity(0.55) : Color.primary.opacity(0.08)))
+                }
+            }
+
+            GroupBox("CC-Switch 客户端范围核对") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("已按 CC-Switch 源码核对 9 个独立客户端类型。YConnect 本版提供 8 个正式适配器；Gemini CLI 因协议不同单独标记，不会把认证模式或 OpenCode 插件重复计数。")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 8)], spacing: 8) {
+                        ForEach(ClientSupportCatalog.ccSwitchScope) { item in
+                            HStack(spacing: 7) {
+                                Image(systemName: item.statusSymbol)
+                                    .foregroundStyle(item.availability == .ready ? Brand.accent : Color.secondary)
+                                Text(item.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(item.statusTitle)
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(item.availability == .ready ? Brand.accent : Color.secondary)
+                            }
+                            .help(item.note)
+                            .padding(.horizontal, 9)
+                            .frame(height: 34)
+                            .background(Color.primary.opacity(0.035))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.065)))
+                        }
+                    }
+                    Text("Gemini CLI 使用 Gemini-native generateContent，当前必须有本地协议桥才能安全连接 YakCool，因此不会显示成可应用状态。")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 8)
+            }
+
+            GroupBox("配置 \(store.selectedClientDescriptor.name)") {
                 VStack(alignment: .leading, spacing: 12) {
                     LabeledContent("配置文件") {
-                        Text(store.environment.openCodeConfigurationURL.path)
+                        Text(store.selectedClientDescriptor.configurationPath)
                             .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    }
+                    LabeledContent("连接协议") {
+                        Text(store.selectedClientDescriptor.protocolSummary)
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     if store.isAccountMode {
                         Picker("API Key", selection: $store.selectedAccountKeyID) {
@@ -732,31 +814,46 @@ struct ManagerView: View {
                         }
                     }
                     modelPicker
+                    Text(store.selectedClientDescriptor.restartNote)
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 .padding(.top, 8)
             }
 
             HStack(spacing: 10) {
-                Button { Task { await store.applyOpenCodeConfiguration() } } label: {
-                    Label("备份并应用配置", systemImage: "arrow.triangle.2.circlepath")
+                Button { Task { await store.applySelectedClientConfiguration() } } label: {
+                    Label("备份并应用到 \(store.selectedClientDescriptor.shortName)", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(SmallOrangeButtonStyle()).disabled(store.isBusy)
-                Button { store.restoreOpenCodeConfiguration() } label: {
+                .buttonStyle(SmallPrimaryButtonStyle())
+                .disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty)
+                Button { store.restoreSelectedClientConfiguration() } label: {
                     Label("恢复最近备份", systemImage: "clock.arrow.circlepath")
                 }
                 .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
+                Button { Task { await store.refreshConfigurationModels() } } label: {
+                    Label("刷新兼容模型", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
             }
-            Text(store.openCodeMessage).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(store.selectedClientMessage).font(.system(size: 12)).foregroundStyle(.secondary)
             securityNote
+        }
+        .task(id: "\(store.selectedClientID.rawValue)-\(store.selectedAccountKeyID ?? 0)-\(store.phase)") {
+            await store.refreshConfigurationModels()
         }
     }
 
     @ViewBuilder private var modelPicker: some View {
-        let models: [(String, String)] = store.isAccountMode
-            ? store.accountModels.map { ($0.modelID, $0.displayName) }
-            : store.businessKeyModels.map { ($0.id, $0.name) }
-        Picker("默认模型", selection: $store.selectedModelID) {
-            ForEach(models, id: \.0) { model in Text(model.1).tag(Optional(model.0)) }
+        let models = store.selectedClientCompatibleModels
+        if models.isEmpty {
+            LabeledContent("默认模型") {
+                Text(store.isBusy ? "正在读取兼容模型…" : "当前 Key 没有兼容模型")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Picker("默认模型", selection: $store.selectedModelID) {
+                ForEach(models) { model in Text(model.name).tag(Optional(model.id)) }
+            }
         }
     }
 
@@ -766,7 +863,7 @@ struct ManagerView: View {
                 Button { Task { await store.runServiceChecks(includeLiveCompletion: false) } } label: {
                     Label("运行只读检查", systemImage: "checkmark.shield")
                 }
-                .buttonStyle(SmallOrangeButtonStyle()).disabled(store.isBusy)
+                .buttonStyle(SmallPrimaryButtonStyle()).disabled(store.isBusy)
                 Button { confirmLiveTest = true } label: {
                     Label("测试一次模型调用", systemImage: "sparkles")
                 }
@@ -786,7 +883,7 @@ struct ManagerView: View {
                 case .pending: Image(systemName: "circle").foregroundStyle(.secondary)
                 case .running: ProgressView().controlSize(.small)
                 case .passed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.green)
-                case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.primaryFill)
                 }
             }.frame(width: 20)
             Text(check.title).font(.system(size: 13, weight: .semibold)).frame(width: 140, alignment: .leading)
@@ -815,11 +912,13 @@ struct ManagerView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     securityLine("用户会话与 API Key 保存到 macOS 钥匙串")
                     securityLine("只向 yakcool.com 和 aibalance.yaklang.com 发送凭证")
-                    securityLine("退出登录不会擅自覆盖或删除 OpenCode 配置")
-                    securityLine(store.environment.isDevelopment ? "开发包使用隔离配置目录，不修改真实 OpenCode 配置" : "每次应用 OpenCode 配置前都创建可恢复备份")
+                    securityLine("退出登录不会擅自覆盖或删除任何客户端配置")
+                    securityLine(store.environment.isDevelopment ? "开发包使用隔离目录，不修改真实客户端配置" : "每次应用客户端配置前都创建可恢复备份")
                 }.padding(.top, 8)
             }
-            LabeledContent("版本") { Text("0.1.0") }
+            LabeledContent("版本") {
+                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0")
+            }
             LabeledContent("模式") { Text(store.environment.isDevelopment ? "开发隔离" : "正式") }
         }
     }
@@ -827,7 +926,7 @@ struct ManagerView: View {
     private var securityNote: some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: "lock.shield.fill").foregroundStyle(Brand.green)
-            Text("敏感信息不会进入 UserDefaults、日志、崩溃信息或仓库；OpenCode 配置可随时恢复最近备份。")
+            Text("登录凭据保存在钥匙串；下游密钥仅写入 0600 私有文件，不进入 UserDefaults、日志、仓库或客户端配置明文。")
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -888,7 +987,7 @@ struct ManagerView: View {
         switch navigation.selectedSection {
         case .overview: return "查看 YakCool 账户状态、额度与使用概况"
         case .apiKeys: return "安全创建、选择、复制和删除 API Key"
-        case .openCode: return "备份现有配置并切换到 YakCool provider"
+        case .clients: return "按原生协议配置 8 类客户端；Gemini CLI 单独处理协议桥"
         case .diagnostics: return "分层验证服务、权限、模型和实际调用"
         case .settings: return "管理常驻体验与本地安全设置"
         }

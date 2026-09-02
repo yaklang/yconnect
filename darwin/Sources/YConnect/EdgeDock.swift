@@ -219,7 +219,7 @@ final class YConnectEdgeDockController: NSObject {
         view.onHoverChanged = { [weak self] hovered in self?.setStripHovered(hovered) }
         view.onConfigure = { [weak self] in
             self?.closeStrip()
-            self?.onOpenManager(.openCode)
+            self?.onOpenManager(.clients)
         }
         view.onCopy = { [weak self] in
             _ = self?.store.copyCurrentAPIKey()
@@ -346,7 +346,7 @@ private final class EdgeDockStripView: NSVisualEffectView {
     var onConfigure: (() -> Void)?
     var onCopy: (() -> Void)?
 
-    private lazy var configureButton = makeButton(title: "配置 OpenCode", symbol: "terminal", action: #selector(configureClicked), primary: true)
+    private lazy var configureButton = makeButton(title: "配置客户端", symbol: "arrow.triangle.2.circlepath", action: #selector(configureClicked), primary: true)
     private lazy var copyButton = makeButton(title: "复制 API Key", symbol: "doc.on.doc", action: #selector(copyClicked), primary: false)
 
     override init(frame frameRect: NSRect) {
@@ -385,7 +385,7 @@ private final class EdgeDockStripView: NSVisualEffectView {
     func update(authenticated: Bool, busy: Bool) {
         configureButton.isEnabled = authenticated && !busy
         copyButton.isEnabled = authenticated && !busy
-        configureButton.title = busy ? "操作进行中…" : "配置 OpenCode"
+        configureButton.title = busy ? "操作进行中…" : "配置客户端"
     }
 
     private func makeButton(title: String, symbol: String, action: Selector, primary: Bool) -> NSButton {
@@ -395,7 +395,7 @@ private final class EdgeDockStripView: NSVisualEffectView {
         button.font = .systemFont(ofSize: 11, weight: .semibold)
         button.bezelStyle = .rounded
         button.controlSize = .small
-        if primary { button.bezelColor = Brand.orangeNS; button.contentTintColor = .white }
+        if primary { button.bezelColor = Brand.primaryFillNS; button.contentTintColor = .white }
         button.widthAnchor.constraint(equalToConstant: 108).isActive = true
         button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         return button
@@ -475,7 +475,7 @@ private final class EdgeDockTabView: NSView {
         let width: CGFloat = hovered ? 22 : 10
         let glowPadding: CGFloat = 18
         let pillRect = NSRect(x: onLeft ? -10 : bounds.maxX - width, y: glowPadding, width: width + 10, height: bounds.height - glowPadding * 2)
-        let orange = Brand.orangeNS
+        let accentColor = Brand.accentNS
         CATransaction.begin()
         CATransaction.setAnimationDuration(animated ? 0.16 : 0)
         CATransaction.setDisableActions(!animated)
@@ -484,20 +484,20 @@ private final class EdgeDockTabView: NSView {
         let inset: CGFloat = hovered ? 5 : 9
         let lineRect = NSRect(x: onLeft ? 1.5 : bounds.maxX - 4, y: pillRect.minY + inset, width: 2.5, height: pillRect.height - inset * 2)
         halo.frame = lineRect
-        halo.backgroundColor = orange.withAlphaComponent(0.92).cgColor
-        halo.shadowColor = orange.cgColor
+        halo.backgroundColor = accentColor.withAlphaComponent(0.92).cgColor
+        halo.shadowColor = accentColor.cgColor
         halo.shadowRadius = hovered ? 8 : 6
         halo.shadowOpacity = hovered ? 0.72 : 0.48
         accent.frame = lineRect
-        accent.backgroundColor = orange.cgColor
-        accent.shadowColor = orange.cgColor
+        accent.backgroundColor = accentColor.cgColor
+        accent.shadowColor = accentColor.cgColor
         accent.shadowRadius = hovered ? 4 : 3
         accent.shadowOpacity = 1
         let centerX = onLeft ? 5 + (width - 5) / 2 : bounds.maxX - width + (width - 5) / 2
         for (index, dot) in dots.enumerated() {
             let centerY = bounds.midY + CGFloat(index - 1) * 8
             dot.frame = NSRect(x: centerX - 1.5, y: centerY - 1.5, width: 3, height: 3)
-            dot.backgroundColor = orange.withAlphaComponent(0.95).cgColor
+            dot.backgroundColor = accentColor.withAlphaComponent(0.95).cgColor
             dot.opacity = hovered ? 1 : 0
         }
         CATransaction.commit()

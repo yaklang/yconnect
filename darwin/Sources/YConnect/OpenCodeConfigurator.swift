@@ -55,6 +55,7 @@ enum OpenCodeConfigurationError: LocalizedError, Equatable {
     case invalidConfiguration(String)
     case fileOperation(String)
     case noBackup
+    case rollbackConflict(original: String, paths: [String], recoveryBackupURL: URL)
     case rollbackFailed(original: String, rollback: String)
 
     var errorDescription: String? {
@@ -66,10 +67,20 @@ enum OpenCodeConfigurationError: LocalizedError, Equatable {
             return message
         case .noBackup:
             return "没有可恢复的 OpenCode 配置备份"
+        case .rollbackConflict(let original, let paths, let recoveryBackupURL):
+            return "配置操作失败（\(original)）；检测到外部修改，未覆盖这些文件：\(paths.joined(separator: ", "))。恢复快照：\(recoveryBackupURL.path)"
         case .rollbackFailed(let original, let rollback):
             return "配置操作失败（\(original)），并且自动回滚失败（\(rollback)）"
         }
     }
+}
+
+/// Test-only fault injection at the same boundary used by the shared client
+/// transaction coordinator. Production callers use `.none`.
+struct OpenCodeTransactionHooks {
+    var beforeValidation: (() throws -> Void)?
+
+    static let none = OpenCodeTransactionHooks()
 }
 
 /// Safely installs the YakCool provider into OpenCode's global configuration.
@@ -89,11 +100,13 @@ final class OpenCodeConfigurator {
 
     private let fileManager: FileManager
     private let isoFormatter: ISO8601DateFormatter
+    private let transactionHooks: OpenCodeTransactionHooks
 
     init(
         configurationURL: URL? = nil,
         applicationSupportDirectory: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        transactionHooks: OpenCodeTransactionHooks = .none
     ) {
         let home = fileManager.homeDirectoryForCurrentUser
         let configurationCandidate = configurationURL
@@ -110,6 +123,7 @@ final class OpenCodeConfigurator {
         self.backupsDirectory = self.applicationSupportDirectory
             .appendingPathComponent("Backups/OpenCode", isDirectory: true)
         self.fileManager = fileManager
+        self.transactionHooks = transactionHooks
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -126,8 +140,9 @@ final class OpenCodeConfigurator {
         try rejectManagedSymbolicLink(at: backupsDirectory, label: "OpenCode 备份目录")
         let normalizedModels = try normalizeModels(models, selectedModelID: selectedModelID)
 
-        let existingConfigData = try readRegularFileIfPresent(at: configurationURL)
-        let existingSecretData = try readRegularFileIfPresent(at: secretURL)
+        let originalState = try stableManagedState()
+        let existingConfigData = originalState[.configuration].data
+        let existingSecretData = originalState[.secret].data
         let root = try parseRootObject(existingConfigData)
         let desiredRoot = try updatedRoot(
             root,
@@ -161,45 +176,73 @@ final class OpenCodeConfigurator {
             )
         }
 
-        let backup = try createBackup(
-            configData: existingConfigData,
-            secretData: existingSecretData,
-            kind: .apply
+        let desiredState = ManagedState(
+            configuration: ManagedFileState(data: desiredConfigData, permissions: 0o600),
+            secret: ManagedFileState(data: desiredSecretData, permissions: 0o600)
         )
+        let backup = try createBackup(from: originalState, kind: .apply)
 
-        var mutationBegan = false
+        let mutationOrder: [ManagedTarget] = [.secret, .configuration]
+        var expectedCurrent = originalState
+        var attemptedTargets: [ManagedTarget] = []
+        var inFlightTarget: ManagedTarget?
         do {
-            guard try readRegularFileIfPresent(at: configurationURL) == existingConfigData,
-                  try readRegularFileIfPresent(at: secretURL) == existingSecretData else {
+            guard try stableManagedState() == originalState else {
                 throw OpenCodeConfigurationError.fileOperation(
                     "OpenCode 配置在操作过程中被其他程序修改，请重试"
                 )
             }
             try ensurePrivateDirectory(secretURL.deletingLastPathComponent())
-            mutationBegan = true
-            try atomicWrite(desiredSecretData, to: secretURL, permissions: 0o600)
-            try atomicWrite(desiredConfigData, to: configurationURL, permissions: 0o600)
+            for target in mutationOrder {
+                inFlightTarget = target
+                attemptedTargets.append(target)
+                try restoreFileState(desiredState[target], target: target)
+                expectedCurrent[target] = desiredState[target]
+                inFlightTarget = nil
+            }
+
+            let installed = try stableManagedState()
+            guard installed == desiredState else {
+                throw OpenCodeConfigurationError.fileOperation(
+                    "OpenCode 写入后的内容或权限与本次计划不一致"
+                )
+            }
+            try transactionHooks.beforeValidation?()
             try validateInstalledConfiguration(
+                state: installed,
+                expectedConfigData: desiredConfigData,
+                expectedSecretData: desiredSecretData,
                 expectedModelID: selectedModelID,
                 forbiddenSecret: desiredSecretData
             )
+            guard try stableManagedState() == desiredState else {
+                throw OpenCodeConfigurationError.fileOperation(
+                    "OpenCode 配置在写后校验期间被其他程序修改"
+                )
+            }
             try markBackupCompleted(backup)
         } catch {
-            guard mutationBegan else {
+            guard !attemptedTargets.isEmpty else {
                 try? fileManager.removeItem(at: backup.directory)
                 throw mapFileError(error)
             }
-            do {
-                try restoreSnapshot(backup)
-            } catch let rollbackError {
-                throw OpenCodeConfigurationError.rollbackFailed(
-                    original: error.localizedDescription,
-                    rollback: rollbackError.localizedDescription
-                )
-            }
-            try? fileManager.removeItem(at: backup.directory)
-            throw mapFileError(error)
+            throw rollbackAfterFailure(
+                originalError: error,
+                original: originalState,
+                recoveryBackup: backup,
+                mutationOrder: mutationOrder,
+                attemptedTargets: attemptedTargets,
+                expectedCurrent: expectedCurrent,
+                inFlightTarget: inFlightTarget,
+                inFlightDesired: inFlightTarget.map { desiredState[$0] }
+            )
         }
+
+        // Retention is deliberately outside the write/rollback transaction:
+        // failure to remove an old snapshot must never turn a successful
+        // configuration install into a reported failure. Only completed,
+        // regular backup directories are eligible for pruning.
+        try? pruneCompletedBackups(retaining: 20)
 
         return OpenCodeConfigurationResult(
             action: .applied,
@@ -220,46 +263,65 @@ final class OpenCodeConfigurator {
             throw OpenCodeConfigurationError.noBackup
         }
 
-        let currentConfig = try readRegularFileIfPresent(at: configurationURL)
-        let currentSecret = try readRegularFileIfPresent(at: secretURL)
-        let rollbackSnapshot = try createBackup(
-            configData: currentConfig,
-            secretData: currentSecret,
-            kind: .temporaryRollback
-        )
+        let desiredState = try managedState(from: target)
+        let currentState = try stableManagedState()
+        let rollbackSnapshot = try createBackup(from: currentState, kind: .temporaryRollback)
 
         var restoredModelID: String?
-        var mutationBegan = false
+        let mutationOrder: [ManagedTarget] = desiredState[.secret].data == nil
+            ? [.configuration, .secret]
+            : [.secret, .configuration]
+        var expectedCurrent = currentState
+        var attemptedTargets: [ManagedTarget] = []
+        var inFlightTarget: ManagedTarget?
         do {
-            guard try readRegularFileIfPresent(at: configurationURL) == currentConfig,
-                  try readRegularFileIfPresent(at: secretURL) == currentSecret else {
+            guard try stableManagedState() == currentState else {
                 throw OpenCodeConfigurationError.fileOperation(
                     "OpenCode 配置在恢复过程中被其他程序修改，请重试"
                 )
             }
-            mutationBegan = true
-            try restoreSnapshot(target)
-            try validateRestoredState(matches: target)
-            if let restoredConfig = try readRegularFileIfPresent(at: configurationURL) {
+            for managedTarget in mutationOrder {
+                inFlightTarget = managedTarget
+                attemptedTargets.append(managedTarget)
+                try restoreFileState(desiredState[managedTarget], target: managedTarget)
+                expectedCurrent[managedTarget] = desiredState[managedTarget]
+                inFlightTarget = nil
+            }
+
+            let installed = try stableManagedState()
+            guard installed == desiredState else {
+                throw OpenCodeConfigurationError.fileOperation(
+                    "OpenCode 备份恢复后的内容或权限与快照不一致"
+                )
+            }
+            try transactionHooks.beforeValidation?()
+            try validateRestoredState(installed, expected: desiredState)
+            let validated = try stableManagedState()
+            guard validated == desiredState else {
+                throw OpenCodeConfigurationError.fileOperation(
+                    "OpenCode 配置在恢复校验期间被其他程序修改"
+                )
+            }
+            if let restoredConfig = validated[.configuration].data {
                 restoredModelID = Self.yakCoolModelID(
                     from: try parseRootObject(restoredConfig)["model"] as? String ?? ""
                 )
             }
         } catch {
-            guard mutationBegan else {
+            guard !attemptedTargets.isEmpty else {
                 try? fileManager.removeItem(at: rollbackSnapshot.directory)
                 throw mapFileError(error)
             }
-            do {
-                try restoreSnapshot(rollbackSnapshot)
-            } catch let rollbackError {
-                throw OpenCodeConfigurationError.rollbackFailed(
-                    original: error.localizedDescription,
-                    rollback: rollbackError.localizedDescription
-                )
-            }
-            try? fileManager.removeItem(at: rollbackSnapshot.directory)
-            throw mapFileError(error)
+            throw rollbackAfterFailure(
+                originalError: error,
+                original: currentState,
+                recoveryBackup: rollbackSnapshot,
+                mutationOrder: mutationOrder,
+                attemptedTargets: attemptedTargets,
+                expectedCurrent: expectedCurrent,
+                inFlightTarget: inFlightTarget,
+                inFlightDesired: inFlightTarget.map { desiredState[$0] }
+            )
         }
 
         try? fileManager.removeItem(at: rollbackSnapshot.directory)
@@ -671,6 +733,36 @@ final class OpenCodeConfigurator {
 
     // MARK: - Backups and transactional writes
 
+    private enum ManagedTarget: CaseIterable, Hashable {
+        case configuration
+        case secret
+    }
+
+    private struct ManagedFileState: Equatable {
+        let data: Data?
+        let permissions: Int?
+    }
+
+    private struct ManagedState: Equatable {
+        var configuration: ManagedFileState
+        var secret: ManagedFileState
+
+        subscript(_ target: ManagedTarget) -> ManagedFileState {
+            get {
+                switch target {
+                case .configuration: return configuration
+                case .secret: return secret
+                }
+            }
+            set {
+                switch target {
+                case .configuration: configuration = newValue
+                case .secret: secret = newValue
+                }
+            }
+        }
+    }
+
     private enum BackupKind {
         case apply
         case temporaryRollback
@@ -698,11 +790,9 @@ final class OpenCodeConfigurator {
         var manifestURL: URL { directory.appendingPathComponent("manifest.json") }
     }
 
-    private func createBackup(
-        configData: Data?,
-        secretData: Data?,
-        kind: BackupKind
-    ) throws -> BackupSnapshot {
+    private func createBackup(from state: ManagedState, kind: BackupKind) throws -> BackupSnapshot {
+        let configData = state[.configuration].data
+        let secretData = state[.secret].data
         try ensurePrivateDirectory(backupsDirectory)
         let createdAt = Date()
         let createdAtNanoseconds = UInt64(max(0, createdAt.timeIntervalSince1970 * 1_000_000_000))
@@ -723,8 +813,8 @@ final class OpenCodeConfigurator {
             createdAt: isoFormatter.string(from: createdAt),
             configExisted: configData != nil,
             secretExisted: secretData != nil,
-            configPermissions: configData == nil ? nil : permissionsIfPresent(at: configurationURL),
-            secretPermissions: secretData == nil ? nil : permissionsIfPresent(at: secretURL),
+            configPermissions: configData == nil ? nil : state[.configuration].permissions,
+            secretPermissions: secretData == nil ? nil : state[.secret].permissions,
             operationCompleted: kind == .temporaryRollback ? nil : false,
             createdAtNanoseconds: createdAtNanoseconds,
             configSHA256: configData.map(Self.sha256),
@@ -848,7 +938,7 @@ final class OpenCodeConfigurator {
         return data
     }
 
-    private func restoreSnapshot(_ snapshot: BackupSnapshot) throws {
+    private func managedState(from snapshot: BackupSnapshot) throws -> ManagedState {
         let configData: Data?
         let secretData: Data?
         if snapshot.manifest.configExisted {
@@ -870,55 +960,49 @@ final class OpenCodeConfigurator {
             secretData = nil
         }
 
-        if secretData == nil {
-            // First stop referencing the managed secret, then remove it.
-            try restoreFile(
-                configData,
-                to: configurationURL,
-                permissions: snapshot.manifest.configPermissions ?? 0o600
+        return ManagedState(
+            configuration: ManagedFileState(
+                data: configData,
+                permissions: configData == nil ? nil : snapshot.manifest.configPermissions ?? 0o600
+            ),
+            // Historical secret modes are intentionally not restored. A
+            // credential that survives restore is always clamped to 0600.
+            secret: ManagedFileState(
+                data: secretData,
+                permissions: secretData == nil ? nil : 0o600
             )
-            try restoreFile(nil, to: secretURL, permissions: 0o600)
-        } else {
-            try restoreFile(secretData, to: secretURL, permissions: 0o600)
-            try restoreFile(
-                configData,
-                to: configurationURL,
-                permissions: snapshot.manifest.configPermissions ?? 0o600
-            )
-        }
+        )
     }
 
-    private func validateRestoredState(matches snapshot: BackupSnapshot) throws {
-        let currentConfig = try readRegularFileIfPresent(at: configurationURL)
-        let currentSecret = try readRegularFileIfPresent(at: secretURL)
-        let expectedConfig = snapshot.manifest.configExisted
-            ? try validatedBackupFileData(
-                snapshot.configURL,
-                label: "opencode.json",
-                expectedSHA256: snapshot.manifest.configSHA256
-            )
-            : nil
-        let expectedSecret = snapshot.manifest.secretExisted
-            ? try validatedBackupFileData(
-                snapshot.secretURL,
-                label: "OpenCode 密钥",
-                expectedSHA256: snapshot.manifest.secretSHA256
-            )
-            : nil
-        guard currentConfig == expectedConfig, currentSecret == expectedSecret else {
+    private func validateRestoredState(
+        _ state: ManagedState,
+        expected: ManagedState
+    ) throws {
+        guard state == expected else {
             throw OpenCodeConfigurationError.fileOperation("OpenCode 备份恢复后的内容校验失败")
         }
-        if let currentConfig {
-            _ = try parseRootObject(currentConfig)
+        if let configData = state[.configuration].data {
+            _ = try parseRootObject(configData)
         }
-        if currentSecret != nil, permissionsIfPresent(at: secretURL) != 0o600 {
+        if state[.secret].data != nil, state[.secret].permissions != 0o600 {
             throw OpenCodeConfigurationError.fileOperation("OpenCode 密钥恢复后的权限校验失败")
         }
     }
 
-    private func validateInstalledConfiguration(expectedModelID: String, forbiddenSecret: Data) throws {
-        guard let configData = try readRegularFileIfPresent(at: configurationURL) else {
+    private func validateInstalledConfiguration(
+        state: ManagedState,
+        expectedConfigData: Data,
+        expectedSecretData: Data,
+        expectedModelID: String,
+        forbiddenSecret: Data
+    ) throws {
+        guard let configData = state[.configuration].data else {
             throw OpenCodeConfigurationError.fileOperation("写入后找不到 OpenCode 配置")
+        }
+        guard configData == expectedConfigData else {
+            throw OpenCodeConfigurationError.fileOperation(
+                "写入后的 OpenCode 配置不是本次生成的完整内容"
+            )
         }
         guard configData.range(of: forbiddenSecret) == nil else {
             throw OpenCodeConfigurationError.invalidConfiguration("OpenCode 配置意外包含 API Key 明文")
@@ -932,8 +1016,131 @@ final class OpenCodeConfigurator {
               (root["model"] as? String) == "\(Self.providerID)/\(expectedModelID)" else {
             throw OpenCodeConfigurationError.invalidConfiguration("写入后的 OpenCode 配置校验失败")
         }
-        guard try readRegularFileIfPresent(at: secretURL) != nil else {
-            throw OpenCodeConfigurationError.fileOperation("写入后找不到 OpenCode 密钥文件")
+        guard state[.secret].data == expectedSecretData else {
+            throw OpenCodeConfigurationError.fileOperation(
+                "写入后的 OpenCode 密钥不是本次提交的内容"
+            )
+        }
+        guard state[.secret].permissions == 0o600 else {
+            throw OpenCodeConfigurationError.fileOperation("OpenCode 密钥写入后的权限不是 0600")
+        }
+    }
+
+    private func stableManagedState() throws -> ManagedState {
+        for _ in 0..<3 {
+            let candidate = try managedStatePass()
+            let verification = try managedStatePass()
+            if candidate == verification { return candidate }
+        }
+        throw OpenCodeConfigurationError.fileOperation(
+            "OpenCode 配置在读取过程中持续变化，请重试"
+        )
+    }
+
+    private func managedStatePass() throws -> ManagedState {
+        ManagedState(
+            configuration: try fileState(at: configurationURL),
+            secret: try fileState(at: secretURL)
+        )
+    }
+
+    private func fileState(at url: URL) throws -> ManagedFileState {
+        guard let data = try readRegularFileIfPresent(at: url) else {
+            return ManagedFileState(data: nil, permissions: nil)
+        }
+        return ManagedFileState(data: data, permissions: permissionsIfPresent(at: url))
+    }
+
+    private func url(for target: ManagedTarget) -> URL {
+        switch target {
+        case .configuration: return configurationURL
+        case .secret: return secretURL
+        }
+    }
+
+    private func restoreFileState(_ state: ManagedFileState, target: ManagedTarget) throws {
+        let permissions = state.data == nil ? 0o600 : state.permissions ?? 0o600
+        try restoreFile(state.data, to: url(for: target), permissions: permissions)
+    }
+
+    private func restorableOriginalState(_ state: ManagedState) -> ManagedState {
+        var result = state
+        if result[.configuration].data != nil, result[.configuration].permissions == nil {
+            result[.configuration] = ManagedFileState(
+                data: result[.configuration].data,
+                permissions: 0o600
+            )
+        }
+        if result[.secret].data != nil {
+            result[.secret] = ManagedFileState(data: result[.secret].data, permissions: 0o600)
+        }
+        return result
+    }
+
+    private func rollbackAfterFailure(
+        originalError: Error,
+        original: ManagedState,
+        recoveryBackup: BackupSnapshot,
+        mutationOrder: [ManagedTarget],
+        attemptedTargets: [ManagedTarget],
+        expectedCurrent: ManagedState,
+        inFlightTarget: ManagedTarget?,
+        inFlightDesired: ManagedFileState?
+    ) -> OpenCodeConfigurationError {
+        let originalMessage = originalError.localizedDescription
+        let current: ManagedState
+        do {
+            current = try stableManagedState()
+        } catch {
+            return .rollbackFailed(
+                original: originalMessage,
+                rollback: "\(error.localizedDescription)。恢复快照：\(recoveryBackup.directory.path)"
+            )
+        }
+
+        let conflicts = ManagedTarget.allCases.filter { target in
+            let actual = current[target]
+            if actual == expectedCurrent[target] { return false }
+            if target == inFlightTarget,
+               actual == inFlightDesired || actual == original[target] {
+                return false
+            }
+            return true
+        }
+        let conflictSet = Set(conflicts)
+        let attemptedSet = Set(attemptedTargets)
+        let rollbackOrder = mutationOrder.reversed().filter {
+            attemptedSet.contains($0) && !conflictSet.contains($0)
+        }
+        let restorableOriginal = restorableOriginalState(original)
+
+        do {
+            for target in rollbackOrder {
+                try restoreFileState(restorableOriginal[target], target: target)
+            }
+            let restored = try stableManagedState()
+            let failedRollbackPaths = rollbackOrder.compactMap { target in
+                restored[target] == restorableOriginal[target] ? nil : url(for: target).path
+            }
+            guard failedRollbackPaths.isEmpty else {
+                throw OpenCodeConfigurationError.fileOperation(
+                    "自动回滚后的内容或权限校验失败：\(failedRollbackPaths.joined(separator: ", "))"
+                )
+            }
+            if conflicts.isEmpty {
+                try fileManager.removeItem(at: recoveryBackup.directory)
+                return mapFileError(originalError)
+            }
+            return .rollbackConflict(
+                original: originalMessage,
+                paths: conflicts.map { url(for: $0).path },
+                recoveryBackupURL: recoveryBackup.directory
+            )
+        } catch {
+            return .rollbackFailed(
+                original: originalMessage,
+                rollback: "\(error.localizedDescription)。恢复快照：\(recoveryBackup.directory.path)"
+            )
         }
     }
 
@@ -955,6 +1162,38 @@ final class OpenCodeConfigurator {
             try atomicWrite(data, to: snapshot.manifestURL, permissions: 0o600)
         } catch {
             throw mapFileError(error)
+        }
+    }
+
+    private func pruneCompletedBackups(retaining limit: Int) throws {
+        guard limit >= 1, fileManager.fileExists(atPath: backupsDirectory.path) else { return }
+        let entries = try fileManager.contentsOfDirectory(
+            at: backupsDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var completed: [(url: URL, createdAt: Date)] = []
+        for directory in entries {
+            let values = try directory.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .creationDateKey]
+            )
+            guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            let manifestURL = directory.appendingPathComponent("manifest.json")
+            guard !isSymbolicLink(at: manifestURL),
+                  let data = try? readRegularFileIfPresent(at: manifestURL),
+                  let manifest = try? JSONDecoder().decode(BackupManifest.self, from: data),
+                  manifest.schemaVersion == 1,
+                  manifest.operationCompleted == true else { continue }
+            completed.append((directory, values.creationDate ?? .distantPast))
+        }
+
+        completed.sort { left, right in
+            if left.createdAt != right.createdAt { return left.createdAt > right.createdAt }
+            return left.url.lastPathComponent > right.url.lastPathComponent
+        }
+        for snapshot in completed.dropFirst(limit) {
+            try fileManager.removeItem(at: snapshot.url)
         }
     }
 

@@ -21,23 +21,38 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var businessKeyInfo: BusinessKeyInfoResponse?
     @Published private(set) var businessKeyModels: [BusinessKeyModel] = []
     @Published var selectedAccountKeyID: Int64? {
-        didSet { if !isPreview { YConnectPreferences.selectedAccountKeyID = selectedAccountKeyID } }
+        didSet {
+            if !isPreview { YConnectPreferences.selectedAccountKeyID = selectedAccountKeyID }
+            if oldValue != selectedAccountKeyID, phase == .account { businessKeyModels = [] }
+        }
+    }
+    @Published var selectedClientID: ClientID {
+        didSet {
+            guard oldValue != selectedClientID else { return }
+            if !isPreview { YConnectPreferences.selectedClientID = selectedClientID }
+            selectedModelID = rememberedModelID(for: selectedClientID)
+            selectCompatibleModelIfNeeded()
+        }
     }
     @Published var selectedModelID: String? {
-        didSet { if !isPreview { YConnectPreferences.selectedModelID = selectedModelID } }
+        didSet {
+            rememberModelID(selectedModelID, for: selectedClientID)
+        }
     }
     @Published private(set) var isBusy = false
     @Published private(set) var operationMessage: String?
     @Published var errorMessage: String?
     @Published private(set) var serviceChecks: [ServiceCheck] = []
-    @Published private(set) var openCodeMessage = "尚未写入 OpenCode 配置"
+    @Published private(set) var clientMessages: [ClientID: String] = [:]
+    @Published private(set) var clientStatuses: [ClientID: ClientConfigurationStatus] = [:]
     @Published private(set) var lastRefreshAt: Date?
 
     let environment: AppEnvironment
     private let api: YakCoolAPI
     private let credentials: CredentialRepository
-    private let openCode: OpenCodeConfigurator
+    private let clients: ClientConfigurationRegistry
     private let isPreview: Bool
+    private var selectedModelIDsByClient: [ClientID: String] = [:]
     private var webCookies: [StoredWebCookie] = []
     private var standaloneAPIKey: String?
 
@@ -46,23 +61,76 @@ final class YConnectStore: ObservableObject {
         api: YakCoolAPI = YakCoolAPI(),
         credentialVault: CredentialVault? = nil,
         openCodeConfigurator: OpenCodeConfigurator? = nil,
+        clientRegistry: ClientConfigurationRegistry? = nil,
         preview: Bool = false
     ) {
         self.environment = environment
         self.api = api
         let vault = credentialVault ?? KeychainVault(service: environment.keychainService)
         credentials = CredentialRepository(vault: vault)
-        openCode = openCodeConfigurator ?? OpenCodeConfigurator(
-            configurationURL: environment.openCodeConfigurationURL,
-            applicationSupportDirectory: environment.applicationSupportDirectory
-        )
         isPreview = preview
+        clients = clientRegistry ?? (try! DefaultClientConfigurationRegistry.make(
+            environment: environment,
+            openCodeConfigurator: openCodeConfigurator
+        ))
+
+        // Migrate the v0.1 OpenCode-only preference once, regardless of which
+        // client happens to be selected when this Store starts.
+        if !preview,
+           YConnectPreferences.selectedModelID(for: .openCode) == nil,
+           let legacyOpenCodeModel = YConnectPreferences.selectedModelID {
+            YConnectPreferences.setSelectedModelID(legacyOpenCodeModel, for: .openCode)
+        }
+        let preferredClient = preview ? ClientID.openCode : YConnectPreferences.selectedClientID
+        selectedClientID = clients[preferredClient] == nil
+            ? (clients.descriptors.first?.id ?? .openCode)
+            : preferredClient
         selectedAccountKeyID = preview ? nil : YConnectPreferences.selectedAccountKeyID
-        selectedModelID = preview ? nil : YConnectPreferences.selectedModelID
+        selectedModelID = preview
+            ? nil
+            : YConnectPreferences.selectedModelID(for: selectedClientID)
+        if let selectedModelID {
+            selectedModelIDsByClient[selectedClientID] = selectedModelID
+        }
+        for descriptor in clients.descriptors {
+            clientMessages[descriptor.id] = environment.isDevelopment
+                ? "开发预览使用隔离目录，不会修改真实 \(descriptor.name) 配置"
+                : "尚未写入 \(descriptor.name) 配置"
+        }
     }
 
     var isAuthenticated: Bool { phase.isAuthenticated }
     var isAccountMode: Bool { phase == .account }
+    var clientDescriptors: [ClientDescriptor] { clients.descriptors }
+    var selectedClientDescriptor: ClientDescriptor {
+        clients[selectedClientID]?.descriptor
+            ?? ClientDescriptor(
+                id: selectedClientID,
+                name: selectedClientID.rawValue,
+                shortName: selectedClientID.rawValue,
+                symbol: "terminal",
+                summary: "",
+                supportedProtocols: [],
+                configurationPath: "",
+                restartNote: "",
+                availability: .planned
+            )
+    }
+    var selectedClientMessage: String {
+        clientMessages[selectedClientID] ?? "尚未写入 \(selectedClientDescriptor.name) 配置"
+    }
+    var openCodeMessage: String { clientMessages[.openCode] ?? "尚未写入 OpenCode 配置" }
+
+    var selectedClientCompatibleModels: [BusinessKeyModel] {
+        guard let client = clients[selectedClientID] else { return [] }
+        var seen: Set<String> = []
+        return businessKeyModels.filter { model in
+            guard !client.compatibleModels(from: [Self.clientModelOption(model)]).isEmpty else {
+                return false
+            }
+            return seen.insert(model.id).inserted
+        }
+    }
 
     var userDisplayName: String {
         dashboard?.user.displayName ?? account?.displayName ?? businessKeyInfo?.key.label ?? "未登录"
@@ -184,7 +252,7 @@ final class YConnectStore: ObservableObject {
         standaloneAPIKey = nil
         clearVisibleData()
         phase = .signedOut
-        operationMessage = "已退出；OpenCode 配置不会被自动改动"
+        operationMessage = "已退出；本地客户端配置不会被自动改动"
     }
 
     func createAPIKey(label: String) async -> Bool {
@@ -256,49 +324,105 @@ final class YConnectStore: ObservableObject {
         return true
     }
 
-    func applyOpenCodeConfiguration() async {
+    func refreshConfigurationModels() async {
+        guard !isPreview else {
+            selectCompatibleModelIfNeeded()
+            return
+        }
+        guard let key = currentAPIKeyValue, !isBusy else { return }
+        isBusy = true
+        errorMessage = nil
+        defer { isBusy = false }
+        do {
+            let models = try await api.keyModels(apiKey: key).data
+            guard currentAPIKeyValue == key else { return }
+            businessKeyModels = Self.deduplicatedBusinessKeyModels(models)
+            // The model catalog belongs to the credential, while compatibility
+            // belongs to the client that is current when the response arrives.
+            selectCompatibleModelIfNeeded()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func applySelectedClientConfiguration() async {
+        guard !isBusy else { return }
         guard let key = currentAPIKeyValue else {
             errorMessage = "请先选择可用的 API Key"
+            return
+        }
+        let operationClientID = selectedClientID
+        guard let client = clients[operationClientID] else {
+            errorMessage = ClientConfigurationError.unsupportedClient(selectedClientDescriptor.name).localizedDescription
+            return
+        }
+        let requestedModelID = rememberedModelID(for: operationClientID)
+        isBusy = true
+        errorMessage = nil
+        defer { isBusy = false }
+        do {
+            let response = try await api.keyModels(apiKey: key)
+            try Task.checkCancellation()
+            guard currentAPIKeyValue == key else {
+                throw YConnectError.invalidCredential("操作期间 API Key 已切换，请重试")
+            }
+            let normalizedModels = Self.deduplicatedBusinessKeyModels(response.data)
+            let allOptions = normalizedModels.map(Self.clientModelOption)
+            let compatible = client.compatibleModels(from: allOptions)
+            guard !compatible.isEmpty else {
+                let protocols = client.descriptor.supportedProtocols.map(\.title).joined(separator: " / ")
+                throw ClientConfigurationError.noCompatibleModel(
+                    "当前 API Key 没有兼容 \(client.descriptor.name) 的模型（需要 \(protocols)）"
+                )
+            }
+            if selectedClientID == operationClientID {
+                businessKeyModels = normalizedModels
+            }
+            let modelID = requestedModelID.flatMap { selected in
+                compatible.contains(where: { $0.id == selected }) ? selected : nil
+            } ?? compatible[0].id
+            updateModelID(modelID, for: operationClientID)
+            let result = try client.apply(ClientApplyRequest(
+                apiKey: key,
+                models: allOptions,
+                selectedModelID: modelID
+            ))
+            clientMessages[operationClientID] = result.message
+            operationMessage = result.message
+            clientStatuses[operationClientID] = try? client.inspect()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func restoreSelectedClientConfiguration() {
+        guard !isBusy else { return }
+        guard let client = clients[selectedClientID] else {
+            errorMessage = ClientConfigurationError.unsupportedClient(selectedClientDescriptor.name).localizedDescription
             return
         }
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
         do {
-            let response = try await api.keyModels(apiKey: key)
-            let compatible = response.data.filter { $0.protocols.contains("chat_completions") }
-            guard !compatible.isEmpty else {
-                throw YConnectError.unsupported("当前 API Key 没有兼容 OpenCode 的 Chat Completions 模型")
-            }
-            businessKeyModels = response.data
-            let modelID = selectedModelID.flatMap { selected in
-                compatible.contains(where: { $0.id == selected }) ? selected : nil
-            } ?? compatible[0].id
-            selectedModelID = modelID
-            let result = try openCode.apply(
-                apiKey: key,
-                models: compatible.map { OpenCodeModelOption(id: $0.id, name: $0.name) },
-                selectedModelID: modelID
-            )
-            openCodeMessage = result.message
+            let result = try client.restoreLatest()
+            clientMessages[selectedClientID] = result.message
             operationMessage = result.message
+            clientStatuses[selectedClientID] = try? client.inspect()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Source-compatible entry points for scripts/tests from the first preview.
+    func applyOpenCodeConfiguration() async {
+        selectedClientID = .openCode
+        await applySelectedClientConfiguration()
+    }
+
     func restoreOpenCodeConfiguration() {
-        guard !isBusy else { return }
-        isBusy = true
-        errorMessage = nil
-        defer { isBusy = false }
-        do {
-            let result = try openCode.restoreLatest()
-            openCodeMessage = result.message
-            operationMessage = result.message
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        selectedClientID = .openCode
+        restoreSelectedClientConfiguration()
     }
 
     func runServiceChecks(includeLiveCompletion: Bool) async {
@@ -307,6 +431,13 @@ final class YConnectStore: ObservableObject {
             return
         }
         guard !isBusy else { return }
+        let operationClientID = selectedClientID
+        guard let client = clients[operationClientID] else {
+            errorMessage = ClientConfigurationError.unsupportedClient(selectedClientDescriptor.name).localizedDescription
+            return
+        }
+        let descriptor = client.descriptor
+        let requestedModelID = rememberedModelID(for: operationClientID)
         isBusy = true
         errorMessage = nil
         serviceChecks = [
@@ -332,22 +463,42 @@ final class YConnectStore: ObservableObject {
         var compatibleModels: [BusinessKeyModel] = []
         await runCheck(id: "models") {
             let result = try await self.api.keyModels(apiKey: key)
-            compatibleModels = result.data.filter { $0.protocols.contains("chat_completions") }
-            guard !result.data.isEmpty else { throw YConnectError.unsupported("当前 Key 没有可用模型") }
-            return "\(result.data.count) 个模型，\(compatibleModels.count) 个支持 Chat Completions"
+            let models = Self.deduplicatedBusinessKeyModels(result.data)
+            guard !models.isEmpty else { throw YConnectError.unsupported("当前 Key 没有可用模型") }
+            let compatibleIDs = Set(client.compatibleModels(
+                from: models.map(Self.clientModelOption)
+            ).map(\.id))
+            compatibleModels = models.filter { compatibleIDs.contains($0.id) }
+            guard !compatibleModels.isEmpty else {
+                let protocols = descriptor.supportedProtocols.map(\.title).joined(separator: " / ")
+                throw YConnectError.unsupported(
+                    "当前 Key 没有兼容 \(descriptor.name) 的模型（需要 \(protocols)）"
+                )
+            }
+            return "\(models.count) 个模型，\(compatibleModels.count) 个兼容 \(descriptor.name)"
         }
 
         if includeLiveCompletion {
             await runCheck(id: "completion") {
-                guard let model = compatibleModels.first(where: { $0.id == self.selectedModelID }) ?? compatibleModels.first else {
-                    throw YConnectError.unsupported("没有可用于最小调用的 Chat Completions 模型")
+                guard let model = compatibleModels.first(where: { $0.id == requestedModelID })
+                    ?? compatibleModels.first else {
+                    throw YConnectError.unsupported("没有可用于 \(descriptor.name) 最小调用的兼容模型")
                 }
-                let reply = try await self.api.completionProbe(
+                let advertisedProtocols = Set(model.protocols.map { AIProtocol(rawValue: $0) })
+                guard let wireProtocol = descriptor.supportedProtocols.first(where: {
+                    advertisedProtocols.contains($0)
+                }) else {
+                    throw YConnectError.unsupported("模型与 \(descriptor.name) 没有兼容的调用协议")
+                }
+                let result = try await self.api.modelProbe(
                     gateway: YakCoolAPI.productionGateway,
                     apiKey: key,
-                    model: model.id
+                    model: model.id,
+                    wireProtocol: wireProtocol
                 )
-                return reply.isEmpty ? "调用成功（空文本响应）" : "调用成功：\(String(reply.prefix(40)))"
+                return result.text.isEmpty
+                    ? "\(result.protocolName) · 调用成功（空文本响应）"
+                    : "\(result.protocolName) · 调用成功：\(String(result.text.prefix(40)))"
             }
         }
         operationMessage = serviceChecks.contains(where: {
@@ -370,9 +521,9 @@ final class YConnectStore: ObservableObject {
         accountKeys = keyResponse.keys
         accountModels = modelResponse.models
         if selectedAccountKey == nil { selectedAccountKeyID = keyResponse.keys.first(where: \.active)?.id ?? keyResponse.keys.first?.id }
-        if selectedModelID == nil || !modelResponse.models.contains(where: { $0.modelID == selectedModelID }) {
-            selectedModelID = modelResponse.models.first?.modelID
-        }
+        // The account catalog does not include wire-protocol capability data.
+        // It must never overwrite a client-specific configuration selection;
+        // `/api/key/models` is the authority for that decision.
         lastRefreshAt = Date()
     }
 
@@ -391,12 +542,10 @@ final class YConnectStore: ObservableObject {
         accountKeys = []
         accountModels = []
         businessKeyInfo = info
-        businessKeyModels = models.data
+        businessKeyModels = Self.deduplicatedBusinessKeyModels(models.data)
         phase = .apiKey
         preferredAuthenticationMode = .apiKey
-        if selectedModelID == nil || !models.data.contains(where: { $0.id == selectedModelID }) {
-            selectedModelID = models.data.first(where: { $0.protocols.contains("chat_completions") })?.id ?? models.data.first?.id
-        }
+        selectCompatibleModelIfNeeded()
         lastRefreshAt = Date()
     }
 
@@ -406,6 +555,84 @@ final class YConnectStore: ObservableObject {
         case .apiKey: return standaloneAPIKey
         case .signedOut, .restoring: return nil
         }
+    }
+
+    private func rememberedModelID(for clientID: ClientID) -> String? {
+        if let remembered = selectedModelIDsByClient[clientID] { return remembered }
+        guard !isPreview else { return nil }
+        return YConnectPreferences.selectedModelID(for: clientID)
+    }
+
+    private func rememberModelID(_ modelID: String?, for clientID: ClientID) {
+        if let modelID {
+            selectedModelIDsByClient[clientID] = modelID
+        } else {
+            selectedModelIDsByClient.removeValue(forKey: clientID)
+        }
+        guard !isPreview else { return }
+        YConnectPreferences.setSelectedModelID(modelID, for: clientID)
+        // Keep the v0.1 OpenCode preference as a one-way compatibility aid.
+        if clientID == .openCode { YConnectPreferences.selectedModelID = modelID }
+    }
+
+    private func updateModelID(_ modelID: String?, for clientID: ClientID) {
+        if selectedClientID == clientID {
+            // The property observer owns persistence for the active client.
+            selectedModelID = modelID
+        } else {
+            rememberModelID(modelID, for: clientID)
+        }
+    }
+
+    private func selectCompatibleModelIfNeeded() {
+        guard let client = clients[selectedClientID], !businessKeyModels.isEmpty else { return }
+        let compatible = client.compatibleModels(from: businessKeyModels.map(Self.clientModelOption))
+        guard !compatible.isEmpty else {
+            selectedModelID = nil
+            return
+        }
+        let remembered = rememberedModelID(for: selectedClientID)
+        if let remembered, compatible.contains(where: { $0.id == remembered }) {
+            selectedModelID = remembered
+        } else if selectedModelID == nil || !compatible.contains(where: { $0.id == selectedModelID }) {
+            selectedModelID = compatible[0].id
+        }
+    }
+
+    /// The API contract identifies models by ID. Merge a malformed or
+    /// transitional duplicate response into one picker entry and retain the
+    /// union of advertised wire protocols, in first-seen order.
+    private static func deduplicatedBusinessKeyModels(
+        _ models: [BusinessKeyModel]
+    ) -> [BusinessKeyModel] {
+        var result: [BusinessKeyModel] = []
+        var indexByID: [String: Int] = [:]
+
+        for model in models {
+            guard let index = indexByID[model.id] else {
+                indexByID[model.id] = result.count
+                result.append(model)
+                continue
+            }
+            let existing = result[index]
+            var protocols = existing.protocols
+            var seen = Set(protocols.map { AIProtocol(rawValue: $0) })
+            for value in model.protocols {
+                if seen.insert(AIProtocol(rawValue: value)).inserted {
+                    protocols.append(value)
+                }
+            }
+            result[index] = BusinessKeyModel(
+                id: existing.id,
+                name: existing.name.isEmpty ? model.name : existing.name,
+                protocols: protocols
+            )
+        }
+        return result
+    }
+
+    private static func clientModelOption(_ model: BusinessKeyModel) -> ClientModelOption {
+        ClientModelOption(id: model.id, name: model.name, protocols: model.protocols)
     }
 
     private func runCheck(id: String, operation: () async throws -> String) async {
@@ -431,8 +658,19 @@ final class YConnectStore: ObservableObject {
     }
 
     static func preview(environment: AppEnvironment) -> YConnectStore {
+        // Re-root even an accidentally supplied production environment. This
+        // factory is used by render previews and must never share client files,
+        // credentials, or backups with the running application.
+        let sandboxEnvironment = AppEnvironment.preview(
+            at: environment.applicationSupportDirectory
+                .appendingPathComponent("RenderPreview", isDirectory: true)
+        )
         let store = YConnectStore(
-            environment: environment,
+            environment: sandboxEnvironment,
+            api: YakCoolAPI(
+                origin: URL(string: "https://preview.invalid")!,
+                transport: PreviewOfflineHTTPTransport()
+            ),
             credentialVault: MemoryCredentialVault(),
             preview: true
         )
@@ -487,13 +725,22 @@ final class YConnectStore: ObservableObject {
         store.selectedAccountKeyID = 11
         store.selectedModelID = "gpt-5"
         store.lastRefreshAt = Date()
-        store.openCodeMessage = environment.isDevelopment
+        store.clientMessages[.openCode] = sandboxEnvironment.isDevelopment
             ? "开发预览使用隔离配置目录，不会修改真实 OpenCode 配置"
-            : "将安全写入 \(environment.openCodeConfigurationURL.path)"
+            : "将安全写入 \(sandboxEnvironment.openCodeConfigurationURL.path)"
         return store
     }
 }
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Render previews contain realistic-looking credentials. They must never be
+/// allowed to escape through a real HTTP transport.
+private struct PreviewOfflineHTTPTransport: HTTPTransport {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        _ = request
+        throw YConnectError.unsupported("界面预览模式不执行网络请求")
+    }
 }

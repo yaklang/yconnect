@@ -319,6 +319,26 @@ final class OpenCodeConfiguratorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: configurator.secretURL), firstSecret)
     }
 
+    func testApplyRetainsOnlyTwentyCompletedBackups() throws {
+        for index in 0..<22 {
+            _ = try configurator.apply(
+                apiKey: "retention-test-secret-\(index)",
+                models: [OpenCodeModelOption(id: "model-\(index)", name: "Model \(index)")],
+                selectedModelID: "model-\(index)"
+            )
+        }
+
+        XCTAssertEqual(try visibleBackupDirectories().count, 20)
+
+        _ = try configurator.restoreLatest()
+        let root = try jsonObject(at: configurationURL)
+        XCTAssertEqual(root["model"] as? String, "yakcool/model-20")
+        XCTAssertEqual(
+            try Data(contentsOf: configurator.secretURL),
+            Data("retention-test-secret-20".utf8)
+        )
+    }
+
     func testRestoreDetectsConcurrentChangeWithoutOverwritingIt() throws {
         let racingFileManager = RestoreRaceFileManager()
         let service = OpenCodeConfigurator(
@@ -345,6 +365,161 @@ final class OpenCodeConfiguratorTests: XCTestCase {
             try Data(contentsOf: service.secretURL),
             Data("current-race-test-secret".utf8)
         )
+    }
+
+    func testApplyPreservesSemanticallyEquivalentExternalConfigChangeDuringValidation() throws {
+        let originalConfig = Data(#"{"keep":"original"}"#.utf8)
+        let originalSecret = Data("original-validation-secret".utf8)
+        try originalConfig.write(to: configurationURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o640],
+            ofItemAtPath: configurationURL.path
+        )
+        try FileManager.default.createDirectory(
+            at: configurator.secretURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try originalSecret.write(to: configurator.secretURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: configurator.secretURL.path
+        )
+
+        var externalConfig = Data()
+        let service = OpenCodeConfigurator(
+            configurationURL: configurationURL,
+            applicationSupportDirectory: supportURL,
+            transactionHooks: OpenCodeTransactionHooks(beforeValidation: {
+                let installed = try Data(contentsOf: self.configurationURL)
+                let object = try JSONSerialization.jsonObject(with: installed)
+                externalConfig = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                XCTAssertNotEqual(externalConfig, installed)
+                try externalConfig.write(to: self.configurationURL, options: .atomic)
+            })
+        )
+
+        var recoveryBackupURL: URL?
+        XCTAssertThrowsError(
+            try service.apply(
+                apiKey: "replacement-validation-secret",
+                models: [OpenCodeModelOption(id: "validation-model", name: "Validation")],
+                selectedModelID: "validation-model"
+            )
+        ) { error in
+            guard case OpenCodeConfigurationError.rollbackConflict(
+                _, let paths, let recoveryURL
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(paths, [service.configurationURL.path])
+            recoveryBackupURL = recoveryURL
+        }
+
+        XCTAssertEqual(try Data(contentsOf: configurationURL), externalConfig)
+        XCTAssertEqual(try Data(contentsOf: service.secretURL), originalSecret)
+        XCTAssertEqual(try permissions(of: service.secretURL) & 0o777, 0o600)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(recoveryBackupURL).path))
+        XCTAssertEqual(
+            try Data(contentsOf: try XCTUnwrap(recoveryBackupURL).appendingPathComponent("opencode.json")),
+            originalConfig
+        )
+    }
+
+    func testApplyPreservesExternalSecretChangeDuringValidation() throws {
+        let originalConfig = Data(#"{"keep":"original"}"#.utf8)
+        let originalSecret = Data("original-secret-before-race".utf8)
+        let externalSecret = Data("external-secret-during-validation".utf8)
+        try originalConfig.write(to: configurationURL)
+        try FileManager.default.createDirectory(
+            at: configurator.secretURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try originalSecret.write(to: configurator.secretURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: configurator.secretURL.path
+        )
+
+        let service = OpenCodeConfigurator(
+            configurationURL: configurationURL,
+            applicationSupportDirectory: supportURL,
+            transactionHooks: OpenCodeTransactionHooks(beforeValidation: {
+                try externalSecret.write(to: self.configurator.secretURL, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: self.configurator.secretURL.path
+                )
+            })
+        )
+
+        var recoveryBackupURL: URL?
+        XCTAssertThrowsError(
+            try service.apply(
+                apiKey: "replacement-secret-before-race",
+                models: [OpenCodeModelOption(id: "secret-race-model", name: "Secret Race")],
+                selectedModelID: "secret-race-model"
+            )
+        ) { error in
+            guard case OpenCodeConfigurationError.rollbackConflict(
+                _, let paths, let recoveryURL
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(paths, [service.secretURL.path])
+            recoveryBackupURL = recoveryURL
+        }
+
+        XCTAssertEqual(try Data(contentsOf: configurationURL), originalConfig)
+        XCTAssertEqual(try Data(contentsOf: service.secretURL), externalSecret)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(recoveryBackupURL).path))
+    }
+
+    func testRestorePreservesExternalConfigChangeDuringValidation() throws {
+        let backupConfig = Data("""
+        {
+          "model": "before/restore",
+          "keep": "byte-exact"
+        }
+        """.utf8)
+        let backupSecret = Data("secret-before-restore".utf8)
+        try backupConfig.write(to: configurationURL)
+        try FileManager.default.createDirectory(
+            at: configurator.secretURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try backupSecret.write(to: configurator.secretURL)
+
+        _ = try configurator.apply(
+            apiKey: "current-secret-before-restore-race",
+            models: [OpenCodeModelOption(id: "current-model", name: "Current")],
+            selectedModelID: "current-model"
+        )
+        let currentSecret = try Data(contentsOf: configurator.secretURL)
+        let externalConfig = Data(#"{"external_restore_change":true}"#.utf8)
+        let service = OpenCodeConfigurator(
+            configurationURL: configurationURL,
+            applicationSupportDirectory: supportURL,
+            transactionHooks: OpenCodeTransactionHooks(beforeValidation: {
+                try externalConfig.write(to: self.configurationURL, options: .atomic)
+            })
+        )
+
+        var recoveryBackupURL: URL?
+        XCTAssertThrowsError(try service.restoreLatest()) { error in
+            guard case OpenCodeConfigurationError.rollbackConflict(
+                _, let paths, let recoveryURL
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(paths, [service.configurationURL.path])
+            recoveryBackupURL = recoveryURL
+        }
+
+        XCTAssertEqual(try Data(contentsOf: configurationURL), externalConfig)
+        XCTAssertEqual(try Data(contentsOf: service.secretURL), currentSecret)
+        let recoveryURL = try XCTUnwrap(recoveryBackupURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recoveryURL.path))
+        XCTAssertTrue(recoveryURL.lastPathComponent.hasPrefix(".restore-rollback-"))
     }
 
     func testExistingManagedDirectoriesAreHardenedTo0700() throws {

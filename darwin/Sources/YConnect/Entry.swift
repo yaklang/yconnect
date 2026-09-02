@@ -69,8 +69,15 @@ enum YConnectMain {
         application.finishLaunching()
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-preview-\(UUID().uuidString)", isDirectory: true)
         let store = YConnectStore.preview(environment: .preview(at: scratch))
+        if let clientName = argument(after: "--client") {
+            let requested = ClientID(rawValue: clientName)
+            if store.clientDescriptors.contains(where: { $0.id == requested }) {
+                store.selectedClientID = requested
+            }
+        }
         let navigation = ManagerNavigation()
-        if let sectionName = argument(after: "--section"), let section = ManagerSection(rawValue: sectionName) {
+        if let sectionName = argument(after: "--section"),
+           let section = ManagerSection(rawValue: sectionName == "openCode" ? "clients" : sectionName) {
             navigation.selection = section
         }
         let launch = LaunchAtLoginManager(backend: PreviewLaunchAtLoginBackend(), packagedApplication: true)

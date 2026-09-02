@@ -73,8 +73,155 @@ final class YakCoolAPITests: XCTestCase {
         XCTAssertEqual(response.status, "ok")
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.url?.absoluteString, "https://unit-test.yakcool.com/api/health")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/0.2.0")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
         XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+    }
+
+    func testChatCompletionsProbeUsesExpectedPathHeadersBodyAndResponse() async throws {
+        let transport = MockHTTPTransport { request in
+            let data = Data(#"{"choices":[{"message":{"content":"  chat ok  "}}]}"#.utf8)
+            return (data, TestFixture.httpResponse(for: request, status: 200))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+
+        let result = try await api.modelProbe(
+            gateway: YakCoolAPI.productionGateway,
+            apiKey: "fake-chat-probe-key",
+            model: "fixture/chat-model",
+            wireProtocol: .chatCompletions
+        )
+
+        XCTAssertEqual(result.wireProtocol, .chatCompletions)
+        XCTAssertEqual(result.protocolName, "Chat Completions")
+        XCTAssertEqual(result.text, "chat ok")
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.absoluteString, "https://aibalance.yaklang.com/v1/chat/completions")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fake-chat-probe-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/0.2.0")
+        let body = try requestJSONBody(request)
+        XCTAssertEqual(body["model"] as? String, "fixture/chat-model")
+        XCTAssertEqual(body["max_tokens"] as? Int, 8)
+        XCTAssertEqual(body["stream"] as? Bool, false)
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.first?["role"] as? String, "user")
+        XCTAssertEqual(messages.first?["content"] as? String, "Reply exactly with OK.")
+    }
+
+    func testResponsesProbeUsesExpectedPathHeadersBodyAndNestedOutputText() async throws {
+        let transport = MockHTTPTransport { request in
+            let data = Data(
+                #"{"output":[{"type":"message","content":[{"type":"output_text","text":"  responses ok  "}]}]}"#.utf8
+            )
+            return (data, TestFixture.httpResponse(for: request, status: 200))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+
+        let result = try await api.modelProbe(
+            gateway: YakCoolAPI.productionGateway,
+            apiKey: "fake-responses-probe-key",
+            model: "fixture-responses-model",
+            wireProtocol: .responses
+        )
+
+        XCTAssertEqual(result.wireProtocol, .responses)
+        XCTAssertEqual(result.protocolName, "Responses")
+        XCTAssertEqual(result.text, "responses ok")
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.absoluteString, "https://aibalance.yaklang.com/v1/responses")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fake-responses-probe-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
+        let body = try requestJSONBody(request)
+        XCTAssertEqual(body["model"] as? String, "fixture-responses-model")
+        XCTAssertEqual(body["input"] as? String, "Reply exactly with OK.")
+        XCTAssertEqual(body["max_output_tokens"] as? Int, 8)
+        XCTAssertEqual(body["stream"] as? Bool, false)
+    }
+
+    func testAnthropicMessagesProbeUsesExpectedPathHeadersBodyAndResponse() async throws {
+        let transport = MockHTTPTransport { request in
+            let data = Data(#"{"content":[{"type":"text","text":"  messages ok  "}]}"#.utf8)
+            return (data, TestFixture.httpResponse(for: request, status: 200))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+
+        let result = try await api.modelProbe(
+            gateway: YakCoolAPI.productionGateway,
+            apiKey: "fake-messages-probe-key",
+            model: "claude-fixture-model",
+            wireProtocol: .anthropicMessages
+        )
+
+        XCTAssertEqual(result.wireProtocol, .anthropicMessages)
+        XCTAssertEqual(result.protocolName, "Anthropic Messages")
+        XCTAssertEqual(result.text, "messages ok")
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.absoluteString, "https://aibalance.yaklang.com/v1/messages")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "fake-messages-probe-key")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        let body = try requestJSONBody(request)
+        XCTAssertEqual(body["model"] as? String, "claude-fixture-model")
+        XCTAssertEqual(body["max_tokens"] as? Int, 8)
+        XCTAssertEqual(body["stream"] as? Bool, false)
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.first?["role"] as? String, "user")
+        XCTAssertEqual(messages.first?["content"] as? String, "Reply exactly with OK.")
+    }
+
+    func testCompletionProbeRemainsSourceCompatibleAndDelegatesToChatCompletions() async throws {
+        let transport = MockHTTPTransport { request in
+            let data = Data(#"{"choices":[{"text":"legacy ok"}]}"#.utf8)
+            return (data, TestFixture.httpResponse(for: request, status: 200))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+
+        let text = try await api.completionProbe(
+            gateway: YakCoolAPI.productionGateway,
+            apiKey: "fake-legacy-probe-key",
+            model: "legacy-model"
+        )
+
+        XCTAssertEqual(text, "legacy ok")
+        XCTAssertEqual(transport.requests.first?.url?.path, "/v1/chat/completions")
+    }
+
+    func testModelProbeRejectsUntrustedGatewayInvalidModelAndUnknownProtocolBeforeTransport() async {
+        let transport = MockHTTPTransport { request in
+            XCTFail("Rejected probe must not reach transport: \(request)")
+            return (Data(), TestFixture.httpResponse(for: request, status: 500))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+
+        await assertProbeError(.unsupported("服务地址不是受信任的 Yaklang HTTPS 网关")) {
+            try await api.modelProbe(
+                gateway: URL(string: "https://aibalance.yaklang.com.example/v1")!,
+                apiKey: "fake-probe-key",
+                model: "fixture-model",
+                wireProtocol: .responses
+            )
+        }
+        await assertProbeError(.invalidCredential("请选择有效的模型")) {
+            try await api.modelProbe(
+                gateway: YakCoolAPI.productionGateway,
+                apiKey: "fake-probe-key",
+                model: "bad\nmodel",
+                wireProtocol: .responses
+            )
+        }
+        await assertProbeError(.unsupported("YConnect 暂不支持通过 future_protocol 执行最小模型调用")) {
+            try await api.modelProbe(
+                gateway: YakCoolAPI.productionGateway,
+                apiKey: "fake-probe-key",
+                model: "fixture-model",
+                wireProtocol: AIProtocol(rawValue: "future_protocol")
+            )
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
     }
 
     func testStructuredServerErrorIsPreserved() async {
@@ -164,6 +311,33 @@ final class YakCoolAPITests: XCTestCase {
                 file: file,
                 line: line
             )
+        }
+    }
+
+    private func requestJSONBody(
+        _ request: URLRequest,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String: Any] {
+        let data = try XCTUnwrap(request.httpBody, file: file, line: line)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any],
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertProbeError(
+        _ expected: YConnectError,
+        operation: () async throws -> ModelProbeResult,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            _ = try await operation()
+            XCTFail("Expected model probe to fail", file: file, line: line)
+        } catch {
+            XCTAssertEqual(error as? YConnectError, expected, file: file, line: line)
         }
     }
 }

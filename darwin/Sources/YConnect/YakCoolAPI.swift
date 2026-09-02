@@ -31,18 +31,17 @@ struct APIErrorPayload: Decodable {
     let message: String?
 }
 
-struct CompletionProbeResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable { let content: String? }
-        let message: Message?
-        let text: String?
-    }
-    let choices: [Choice]?
+struct ModelProbeResult: Equatable {
+    let wireProtocol: AIProtocol
+    let text: String
+
+    var protocolName: String { wireProtocol.title }
 }
 
 final class YakCoolAPI {
     static let productionOrigin = URL(string: "https://yakcool.com")!
     static let productionGateway = URL(string: "https://aibalance.yaklang.com")!
+    static let userAgent = "YConnect/0.2.0"
 
     let origin: URL
     private let transport: HTTPTransport
@@ -168,36 +167,86 @@ final class YakCoolAPI {
     }
 
     func completionProbe(gateway: URL, apiKey: String, model: String) async throws -> String {
-        let key = try Self.normalizedAPIKey(apiKey)
-        guard let host = gateway.host?.lowercased(),
-              gateway.scheme?.lowercased() == "https",
-              host == "aibalance.yaklang.com" || host.hasSuffix(".yaklang.com") else {
-            throw YConnectError.unsupported("服务地址不是受信任的 Yaklang HTTPS 网关")
-        }
-        let modelID = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !modelID.isEmpty, modelID.count <= 200 else {
-            throw YConnectError.invalidCredential("请选择有效的模型")
-        }
-        let endpoint = gateway
-            .appendingPathComponent("v1", isDirectory: true)
-            .appendingPathComponent("chat", isDirectory: true)
-            .appendingPathComponent("completions")
-        var request = URLRequest(url: endpoint, timeoutInterval: 45)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("YConnect/0.1", forHTTPHeaderField: "User-Agent")
-        request.httpBody = try encoder.encode(CompletionProbeRequest(model: modelID))
-        let data = try await checkedData(for: request)
-        let response: CompletionProbeResponse = try decodeResponse(data)
-        let text = response.choices?.first?.message?.content ?? response.choices?.first?.text ?? ""
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await modelProbe(
+            gateway: gateway,
+            apiKey: apiKey,
+            model: model,
+            wireProtocol: .chatCompletions
+        ).text
     }
 
-    private struct CompletionProbeRequest: Encodable {
+    func modelProbe(
+        gateway: URL,
+        apiKey: String,
+        model: String,
+        wireProtocol: AIProtocol
+    ) async throws -> ModelProbeResult {
+        let key = try Self.normalizedAPIKey(apiKey)
+        let modelID = try Self.normalizedModelID(model)
+        let endpoint = try Self.gatewayEndpoint(gateway, for: wireProtocol)
+        var request = URLRequest(url: endpoint, timeoutInterval: 45)
+        request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+
+        switch wireProtocol {
+        case .chatCompletions:
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try encoder.encode(ChatCompletionsProbeRequest(model: modelID))
+        case .responses:
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try encoder.encode(ResponsesProbeRequest(model: modelID))
+        case .anthropicMessages:
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.httpBody = try encoder.encode(AnthropicMessagesProbeRequest(model: modelID))
+        default:
+            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+        }
+
+        let data = try await checkedData(for: request)
+        let text: String
+        switch wireProtocol {
+        case .chatCompletions:
+            let response: ChatCompletionsProbeResponse = try decodeResponse(data)
+            text = response.choices.first?.message?.content ?? response.choices.first?.text ?? ""
+        case .responses:
+            let response: ResponsesProbeResponse = try decodeResponse(data)
+            if let outputText = response.outputText {
+                text = outputText
+            } else {
+                var extractedText = ""
+                for item in response.output {
+                    guard let content = item.content,
+                          let block = content.first(where: {
+                              $0.type == nil || $0.type == "output_text"
+                          }) else { continue }
+                    extractedText = block.text ?? ""
+                    break
+                }
+                text = extractedText
+            }
+        case .anthropicMessages:
+            let response: AnthropicMessagesProbeResponse = try decodeResponse(data)
+            text = response.content.first(where: { $0.type == nil || $0.type == "text" })?.text ?? ""
+        default:
+            // Unsupported values are rejected before a request is sent.
+            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+        }
+        return ModelProbeResult(
+            wireProtocol: wireProtocol,
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static let probeText = "Reply exactly with OK."
+
+    private struct ChatCompletionsProbeRequest: Encodable {
         struct Message: Encodable { let role: String; let content: String }
         let model: String
-        let messages = [Message(role: "user", content: "Reply exactly with OK.")]
+        let messages = [Message(role: "user", content: YakCoolAPI.probeText)]
         let maxTokens = 8
         let stream = false
 
@@ -205,6 +254,107 @@ final class YakCoolAPI {
             case model, messages, stream
             case maxTokens = "max_tokens"
         }
+    }
+
+    private struct ResponsesProbeRequest: Encodable {
+        let model: String
+        let input = YakCoolAPI.probeText
+        let maxOutputTokens = 8
+        let stream = false
+
+        enum CodingKeys: String, CodingKey {
+            case model, input, stream
+            case maxOutputTokens = "max_output_tokens"
+        }
+    }
+
+    private struct AnthropicMessagesProbeRequest: Encodable {
+        struct Message: Encodable { let role: String; let content: String }
+        let model: String
+        let maxTokens = 8
+        let messages = [Message(role: "user", content: YakCoolAPI.probeText)]
+        let stream = false
+
+        enum CodingKeys: String, CodingKey {
+            case model, messages, stream
+            case maxTokens = "max_tokens"
+        }
+    }
+
+    private struct ChatCompletionsProbeResponse: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable { let content: String? }
+            let message: Message?
+            let text: String?
+        }
+        let choices: [Choice]
+    }
+
+    private struct ResponsesProbeResponse: Decodable {
+        struct Output: Decodable {
+            struct Content: Decodable {
+                let type: String?
+                let text: String?
+            }
+            let content: [Content]?
+        }
+        let output: [Output]
+        let outputText: String?
+
+        enum CodingKeys: String, CodingKey {
+            case output
+            case outputText = "output_text"
+        }
+    }
+
+    private struct AnthropicMessagesProbeResponse: Decodable {
+        struct Content: Decodable {
+            let type: String?
+            let text: String?
+        }
+        let content: [Content]
+    }
+
+    private static func normalizedModelID(_ raw: String) throws -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.utf8.count <= 200,
+              !value.unicodeScalars.contains(where: {
+                  CharacterSet.whitespacesAndNewlines.contains($0)
+                      || CharacterSet.controlCharacters.contains($0)
+              }) else {
+            throw YConnectError.invalidCredential("请选择有效的模型")
+        }
+        return value
+    }
+
+    private static func gatewayEndpoint(_ gateway: URL, for wireProtocol: AIProtocol) throws -> URL {
+        guard let components = URLComponents(url: gateway, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host == productionGateway.host || host.hasSuffix(".yaklang.com"),
+              components.user == nil,
+              components.password == nil,
+              components.port == nil || components.port == 443,
+              components.query == nil,
+              components.fragment == nil,
+              components.path.isEmpty || components.path == "/" else {
+            throw YConnectError.unsupported("服务地址不是受信任的 Yaklang HTTPS 网关")
+        }
+
+        let path: String
+        switch wireProtocol {
+        case .chatCompletions: path = "/v1/chat/completions"
+        case .responses: path = "/v1/responses"
+        case .anthropicMessages: path = "/v1/messages"
+        default:
+            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+        }
+        var endpoint = components
+        endpoint.path = path
+        guard let url = endpoint.url else {
+            throw YConnectError.unsupported("服务地址不是受信任的 Yaklang HTTPS 网关")
+        }
+        return url
     }
 
     private func get<T: Decodable>(_ path: String, credential: RequestCredential) async throws -> T {
@@ -237,7 +387,7 @@ final class YakCoolAPI {
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("YConnect/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         switch credential {
         case .none:
             break

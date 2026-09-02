@@ -73,7 +73,9 @@ final class YConnectStoreTests: XCTestCase {
         XCTAssertEqual(store.accountKeys.map(\.id), [101])
         XCTAssertEqual(store.accountModels.map(\.modelID), ["catalog-model"])
         XCTAssertEqual(store.selectedAccountKey?.id, 101)
-        XCTAssertEqual(store.selectedModelID, "catalog-model")
+        // The account catalog has no wire-protocol metadata. Client defaults
+        // are selected only after `/api/key/models` returns capabilities.
+        XCTAssertNil(store.selectedModelID)
         XCTAssertEqual(try CredentialRepository(vault: vault).loadWebCookies(), [cookie])
         XCTAssertNil(try CredentialRepository(vault: vault).loadAPIKey())
 
