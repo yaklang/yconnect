@@ -361,7 +361,7 @@ struct WidgetView: View {
                 Button { openManager(.overview) } label: {
                     HStack {
                         Image(systemName: "square.grid.2x2")
-                        Text("全部管理").fontWeight(.medium)
+                        Text("全部配置管理").fontWeight(.medium)
                         Spacer()
                         Image(systemName: "chevron.right").font(.caption)
                     }
@@ -375,7 +375,7 @@ struct WidgetView: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
 
                 Button { Task { await store.signOut() } } label: {
-                    Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label("登出", systemImage: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 9)
                         .frame(height: 32)

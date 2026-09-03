@@ -74,10 +74,21 @@ final class LaunchAtLoginManager: ObservableObject {
             status = .unavailable
             return false
         }
+        refresh()
+        if enabled ? isEnabled : status == .disabled {
+            defaults.set(true, forKey: Self.firstLaunchKey)
+            errorMessage = nil
+            return true
+        }
         do {
             if enabled { try backend.register() } else { try backend.unregister() }
             refresh()
-            return enabled ? isEnabled : status == .disabled
+            let succeeded = enabled ? isEnabled : status == .disabled
+            if succeeded {
+                defaults.set(true, forKey: Self.firstLaunchKey)
+                errorMessage = nil
+            }
+            return succeeded
         } catch {
             refresh()
             errorMessage = "无法\(enabled ? "开启" : "关闭")开机启动：\(error.localizedDescription)"
@@ -88,9 +99,8 @@ final class LaunchAtLoginManager: ObservableObject {
     func refresh() { status = packagedApplication ? backend.status : .unavailable }
     func openSystemSettings() { backend.openSystemSettings() }
 
-    func enableOnFirstLaunchIfNeeded() {
+    func enableByDefaultIfNeeded() {
         guard packagedApplication, !defaults.bool(forKey: Self.firstLaunchKey) else { return }
-        defaults.set(true, forKey: Self.firstLaunchKey)
         _ = setEnabled(true)
     }
 }

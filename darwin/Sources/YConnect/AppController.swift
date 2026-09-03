@@ -72,7 +72,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         configureStatusItem()
         configureSubscriptions()
         edgeDock.update()
-        launchAtLogin.enableOnFirstLaunchIfNeeded()
+        launchAtLogin.enableByDefaultIfNeeded()
 
         let isSmokeRun = CommandLine.arguments.contains("--smoke-edge-widget-focus")
             || CommandLine.arguments.contains("--smoke-widget-focus")
