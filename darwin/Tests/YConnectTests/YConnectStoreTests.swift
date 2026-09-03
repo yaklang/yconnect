@@ -118,6 +118,17 @@ final class YConnectStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testAuthenticationInfoIncludesSelectedModelWhenSharingFromWidget() {
+        let value = YConnectStore.authenticationInfo(
+            apiKey: "fixture-secret-key",
+            modelID: "gpt-5-codex"
+        )
+
+        XCTAssertTrue(value.contains("所选模型\ngpt-5-codex"))
+        XCTAssertEqual(value.components(separatedBy: "gpt-5-codex").count - 1, 1)
+    }
+
+    @MainActor
     func testBusinessKeySignInPersistsOnlyAfterBothEndpointsSucceed() async throws {
         let context = try makeContext()
         defer { context.remove() }

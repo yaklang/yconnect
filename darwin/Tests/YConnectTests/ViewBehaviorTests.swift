@@ -37,9 +37,28 @@ final class ViewBehaviorTests: XCTestCase {
         )
         let presentation = WidgetPresentationState()
 
-        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 572)
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 600)
 
         presentation.showsConnectionURLs = true
-        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 724)
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 752)
+
+        presentation.showsConnectionURLs = false
+        presentation.showsModels = true
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 634)
+    }
+
+    @MainActor
+    func testRecentAccessModelsAreDeduplicatedAndOrderedByMostRecentUse() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YConnectRecentModelsTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = YConnectStore.preview(environment: .preview(at: root))
+
+        store.recordAccessModelUse("claude-sonnet-4")
+        store.recordAccessModelUse("gpt-5")
+        store.recordAccessModelUse("claude-sonnet-4")
+        store.recordAccessModelUse("not-available")
+
+        XCTAssertEqual(store.recentAccessModelIDs, ["claude-sonnet-4", "gpt-5"])
     }
 }

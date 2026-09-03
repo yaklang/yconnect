@@ -82,6 +82,7 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var lastRefreshAt: Date?
     @Published private(set) var installedClientIDs: Set<ClientID>
     @Published private(set) var recentClientIDs: [ClientID]
+    @Published private(set) var recentAccessModelIDs: [String]
 
     let environment: AppEnvironment
     private let api: YakCoolAPI
@@ -116,6 +117,7 @@ final class YConnectStore: ObservableObject {
         let detectedClientIDs = self.installationDetector.installedClientIDs(from: clients.descriptors)
         installedClientIDs = detectedClientIDs
         recentClientIDs = preview ? [] : YConnectPreferences.recentClientIDs
+        recentAccessModelIDs = preview ? [] : YConnectPreferences.recentAccessModelIDs
 
         // Migrate the v0.1 OpenCode-only preference once, regardless of which
         // client happens to be selected when this Store starts.
@@ -198,6 +200,16 @@ final class YConnectStore: ObservableObject {
         guard installedClientIDs.contains(clientID), clients[clientID] != nil else { return }
         selectedClientID = clientID
         markClientUsed(clientID)
+    }
+
+    func recordAccessModelUse(_ modelID: String) {
+        guard businessKeyModels.contains(where: { $0.id == modelID }) else { return }
+        recentAccessModelIDs.removeAll(where: { $0 == modelID })
+        recentAccessModelIDs.insert(modelID, at: 0)
+        if recentAccessModelIDs.count > 12 {
+            recentAccessModelIDs.removeLast(recentAccessModelIDs.count - 12)
+        }
+        if !isPreview { YConnectPreferences.recentAccessModelIDs = recentAccessModelIDs }
     }
 
     var selectedClientCompatibleModels: [BusinessKeyModel] {
@@ -418,21 +430,28 @@ final class YConnectStore: ObservableObject {
     }
 
     @discardableResult
-    func copyAuthenticationInfo() -> Bool {
+    func copyAuthenticationInfo(modelID: String? = nil) -> Bool {
         guard let value = currentAPIKeyValue else {
             errorMessage = "当前没有可复制的接入信息"
             return false
         }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(Self.authenticationInfo(apiKey: value), forType: .string)
-        operationMessage = "接入信息已复制，可按需选择协议"
+        NSPasteboard.general.setString(
+            Self.authenticationInfo(apiKey: value, modelID: modelID),
+            forType: .string
+        )
+        operationMessage = modelID == nil
+            ? "接入信息已复制，可按需选择协议"
+            : "接入信息与所选模型已复制"
         return true
     }
 
-    static func authenticationInfo(apiKey: String) -> String {
+    static func authenticationInfo(apiKey: String, modelID: String? = nil) -> String {
         let endpoints = accessEndpoints
             .map { "\($0.name): \($0.url)" }
             .joined(separator: "\n")
+        let normalizedModelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel = normalizedModelID.flatMap { $0.isEmpty ? nil : "\n\n所选模型\n\($0)" } ?? ""
         return """
         YConnect · YakCool 接入信息
         由 YConnect 生成并复制。你可以根据自己的客户端和使用习惯，选择下面任一兼容协议接入。
@@ -442,6 +461,7 @@ final class YConnectStore: ObservableObject {
 
         协议接入地址
         \(endpoints)
+        \(selectedModel)
 
         请求头
         OpenAI 兼容协议 / Responses API: Authorization: Bearer
@@ -802,6 +822,7 @@ final class YConnectStore: ObservableObject {
     static func preview(
         environment: AppEnvironment,
         authenticated: Bool = true,
+        authenticationMode: AuthenticationMode = .account,
         installedClientIDs: Set<ClientID>? = nil,
         operationMessage: String? = nil
     ) -> YConnectStore {
@@ -867,14 +888,54 @@ final class YConnectStore: ObservableObject {
             ModelRecord(id: 1, modelID: "gpt-5", displayName: "GPT-5", provider: "OpenAI", summary: "", capabilityTags: [], contextWindow: 200_000, recommendedScenarios: ""),
             ModelRecord(id: 2, modelID: "claude-sonnet-4", displayName: "Claude Sonnet 4", provider: "Anthropic", summary: "", capabilityTags: [], contextWindow: 200_000, recommendedScenarios: ""),
         ]
+        store.selectedAccountKeyID = 11
         store.businessKeyModels = [
             BusinessKeyModel(id: "gpt-5", name: "GPT-5", protocols: ["chat_completions", "responses"]),
             BusinessKeyModel(id: "claude-sonnet-4", name: "Claude Sonnet 4", protocols: ["anthropic_messages"]),
+            BusinessKeyModel(id: "gpt-5-mini", name: "GPT-5 Mini", protocols: ["chat_completions", "responses"]),
+            BusinessKeyModel(id: "gpt-5-codex", name: "GPT-5 Codex", protocols: ["responses"]),
+            BusinessKeyModel(id: "claude-opus-4", name: "Claude Opus 4", protocols: ["anthropic_messages"]),
+            BusinessKeyModel(id: "claude-haiku-4", name: "Claude Haiku 4", protocols: ["anthropic_messages"]),
+            BusinessKeyModel(id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "deepseek-v3", name: "DeepSeek V3", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "deepseek-r1", name: "DeepSeek R1", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "qwen3-coder", name: "Qwen3 Coder", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "kimi-k2", name: "Kimi K2", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "glm-4.5", name: "GLM 4.5", protocols: ["chat_completions"]),
+            BusinessKeyModel(id: "grok-4", name: "Grok 4", protocols: ["chat_completions", "responses"]),
         ]
-        store.selectedAccountKeyID = 11
         store.selectedModelID = "gpt-5"
         store.lastRefreshAt = Date()
         store.operationMessage = operationMessage
+        if authenticationMode == .apiKey {
+            store.phase = .apiKey
+            store.preferredAuthenticationMode = .apiKey
+            store.dashboard = nil
+            store.account = nil
+            store.accountKeys = []
+            store.accountModels = []
+            store.businessKeyInfo = BusinessKeyInfoResponse(
+                schemaVersion: 1,
+                key: BusinessKeySummary(label: "设计验收 Key", last4: "5D41", status: "enabled"),
+                quota: BusinessQuota(
+                    mode: "shared_account",
+                    followsAccount: true,
+                    approximate: true,
+                    stepPercent: 10,
+                    usedPercentApprox: 60,
+                    remainingPercentApprox: 40,
+                    currency: "RMB",
+                    limitRMB: nil,
+                    usedRMB: nil,
+                    remainingRMB: nil,
+                    exhausted: false,
+                    display: "约 40%"
+                ),
+                queriedAt: "2026-09-03T00:00:00Z"
+            )
+            store.standaloneAPIKey = "preview-key-never-persisted"
+        }
         store.clientMessages[.openCode] = sandboxEnvironment.isDevelopment
             ? "开发预览使用隔离配置目录，不会修改真实 OpenCode 配置"
             : "将安全写入 \(sandboxEnvironment.openCodeConfigurationURL.path)"
