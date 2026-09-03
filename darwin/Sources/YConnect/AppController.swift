@@ -83,6 +83,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     || CommandLine.arguments.contains("--smoke-widget-transient") {
             waitForStableTrayAnchor()
         }
+        if CommandLine.arguments.contains("--show-widget") {
+            DispatchQueue.main.async { [weak self] in self?.showWidget() }
+        }
 
         // Smoke runs validate window behavior with an unauthenticated fixture.
         // Avoid an interactive Keychain unlock from blocking their timers.
@@ -126,12 +129,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func refreshStatusItem() {
         guard let button = statusItem?.button else { return }
+        let title: String
+        var isLow = false
         switch store.phase {
-        case .signedOut: button.title = ""
-        case .restoring: button.title = " …"
+        case .signedOut:
+            title = ""
+        case .restoring:
+            title = "…"
         case .account:
-            button.title = store.dashboard?.aiServiceCredit.remainingRMB.map { " ¥\($0)" } ?? " ●"
-        case .apiKey: button.title = " ●"
+            title = store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "●"
+        case .apiKey:
+            title = store.businessKeyInfo?.quota.trayStatusText ?? "●"
+            isLow = store.businessKeyInfo?.quota.trayStatusIsLow ?? false
+        }
+        let displayedTitle = title.isEmpty ? "" : " \(title)"
+        if isLow {
+            button.attributedTitle = NSAttributedString(
+                string: displayedTitle,
+                attributes: [.foregroundColor: NSColor.systemRed]
+            )
+        } else {
+            button.title = displayedTitle
         }
         button.superview?.layoutSubtreeIfNeeded()
     }
