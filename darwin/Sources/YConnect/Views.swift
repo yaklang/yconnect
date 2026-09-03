@@ -42,10 +42,10 @@ enum WidgetMetrics {
         let quickModels: CGFloat
         if presentation?.showsModels == true {
             quickModels = 0
-        } else if store.businessKeyModels.isEmpty {
+        } else if store.modelDiscoveryModels.isEmpty {
             quickModels = 36
         } else {
-            quickModels = 20 + CGFloat(min(3, store.businessKeyModels.count) * 36)
+            quickModels = 20 + CGFloat(min(3, store.modelDiscoveryModels.count) * 36)
         }
         let hasExpandedSection = expandedURLs > 0 || expandedModels > 0
         let breathingRoom = hasExpandedSection ? 0 : collapsedBreathingRoom
@@ -826,7 +826,7 @@ struct WidgetView: View {
     }
 
     private var availableAccessModels: [BusinessKeyModel] {
-        store.businessKeyModels
+        store.modelDiscoveryModels
     }
 
     private var filteredAccessModels: [BusinessKeyModel] {
@@ -1135,7 +1135,7 @@ struct ManagerView: View {
                         "chart.pie.fill",
                         Brand.accent
                     )
-                    overviewMetric("可用模型", "\(store.businessKeyModels.count)", "cube.fill", Brand.accent.opacity(0.78))
+                    overviewMetric("可用模型", "\(store.modelDiscoveryModels.count)", "cube.fill", Brand.accent.opacity(0.78))
                 }
             }
 
