@@ -11,8 +11,8 @@ enum AuthenticationMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .account: return "YakCool 账号"
-        case .apiKey: return "API Key"
+        case .account: return "YAKCOOL 账户"
+        case .apiKey: return "YAKCOOL APIKEY"
         }
     }
 }

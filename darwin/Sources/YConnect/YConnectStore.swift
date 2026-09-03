@@ -887,6 +887,7 @@ final class YConnectStore: ObservableObject {
             installationDetector: StaticClientInstallationDetector(installedClientIDs),
             preview: true
         )
+        store.preferredAuthenticationMode = authenticationMode
         guard authenticated else { return store }
         store.phase = .account
         store.dashboard = DashboardResponse(
@@ -959,7 +960,6 @@ final class YConnectStore: ObservableObject {
         store.operationMessage = operationMessage
         if authenticationMode == .apiKey {
             store.phase = .apiKey
-            store.preferredAuthenticationMode = .apiKey
             store.dashboard = nil
             store.account = nil
             store.accountKeys = []

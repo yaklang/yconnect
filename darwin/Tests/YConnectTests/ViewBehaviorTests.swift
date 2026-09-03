@@ -3,6 +3,11 @@ import XCTest
 @testable import YConnect
 
 final class ViewBehaviorTests: XCTestCase {
+    func testAuthenticationModeUsesExplicitYakCoolLabels() {
+        XCTAssertEqual(AuthenticationMode.account.title, "YAKCOOL 账户")
+        XCTAssertEqual(AuthenticationMode.apiKey.title, "YAKCOOL APIKEY")
+    }
+
     func testNextYConnectLabelStartsAfterExistingKeyCountAndAvoidsCollisions() {
         XCTAssertEqual(APIKeyLabelSuggestion.next(existingLabels: []), "YConnect-1")
         XCTAssertEqual(

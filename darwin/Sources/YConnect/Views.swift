@@ -276,10 +276,7 @@ struct WidgetView: View {
 
     private var login: some View {
         VStack(spacing: 10) {
-            Picker("登录方式", selection: $store.preferredAuthenticationMode) {
-                ForEach(AuthenticationMode.allCases) { mode in Text(mode.title).tag(mode) }
-            }
-            .pickerStyle(.segmented)
+            authenticationModePicker
 
             if store.preferredAuthenticationMode == .account {
                 loginCard(
@@ -340,6 +337,54 @@ struct WidgetView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
         }
+    }
+
+    private var authenticationModePicker: some View {
+        HStack(spacing: 4) {
+            authenticationModeButton(.account, symbol: "person.crop.circle")
+            authenticationModeButton(.apiKey, symbol: "key.horizontal")
+        }
+        .padding(4)
+        .frame(height: 40)
+        .background(Color.primary.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.07))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("登录方式")
+    }
+
+    private func authenticationModeButton(_ mode: AuthenticationMode, symbol: String) -> some View {
+        let selected = store.preferredAuthenticationMode == mode
+        return Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                store.preferredAuthenticationMode = mode
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(mode.title)
+                    .font(.system(size: 10.5, weight: .bold))
+                    .tracking(0.15)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(selected ? Brand.accent : Color.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(selected ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(selected ? Brand.accent.opacity(0.24) : Color.clear)
+            )
+            .shadow(color: selected ? Color.black.opacity(0.07) : .clear, radius: 2, y: 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(mode.title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var authenticated: some View {
