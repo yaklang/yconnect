@@ -188,6 +188,7 @@ final class YConnectStoreTests: XCTestCase {
         let vault = MemoryCredentialVault()
         let store = makeStore(context: context, transport: transport, vault: vault)
         let cookie = try TestFixture.cookie(value: "fake-public-session-for-store-tests")
+        store.selectedAccountKeyID = 999
 
         try await store.completeAccountLogin(cookies: [cookie])
 
@@ -196,10 +197,11 @@ final class YConnectStoreTests: XCTestCase {
         XCTAssertEqual(store.account?.publicUUID, "fixture-public-user")
         XCTAssertEqual(store.accountKeys.map(\.id), [101])
         XCTAssertEqual(store.accountModels.map(\.modelID), ["catalog-model"])
+        XCTAssertEqual(store.selectedAccountKeyID, 101)
         XCTAssertEqual(store.selectedAccountKey?.id, 101)
-        // The account catalog has no wire-protocol metadata. Client defaults
-        // are selected only after `/api/key/models` returns capabilities.
-        XCTAssertNil(store.selectedModelID)
+        XCTAssertEqual(store.businessKeyModels.map(\.id), ["anthropic-only", "chat-primary", "chat-secondary"])
+        XCTAssertEqual(store.modelDiscoveryModels.map(\.id), ["anthropic-only", "chat-primary", "chat-secondary"])
+        XCTAssertEqual(store.selectedModelID, "chat-primary")
         XCTAssertEqual(try CredentialRepository(vault: vault).loadWebCookies(), [cookie])
         XCTAssertNil(try CredentialRepository(vault: vault).loadAPIKey())
 
@@ -239,6 +241,40 @@ final class YConnectStoreTests: XCTestCase {
             $0.cookie == "yakcool_user_session=fake-public-session-for-store-tests"
                 && $0.authorization == nil
         })
+    }
+
+    @MainActor
+    func testAccountModelDiscoveryFallsBackToPublishedCatalogWhenKeyQueryIsEmpty() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = StoreFlowTransport(emptyBusinessModels: true)
+        let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+        let cookie = try TestFixture.cookie(value: "fake-public-session-for-model-fallback")
+
+        try await store.completeAccountLogin(cookies: [cookie])
+
+        XCTAssertTrue(store.businessKeyModels.isEmpty)
+        XCTAssertEqual(store.modelDiscoveryModels.map(\.id), ["catalog-model"])
+        XCTAssertEqual(store.modelDiscoveryModels.first?.name, "Catalog Model")
+        store.recordAccessModelUse("catalog-model")
+        XCTAssertEqual(store.recentAccessModelIDs.first, "catalog-model")
+    }
+
+    @MainActor
+    func testAccountWithoutAPIKeysHasNoModelDiscoveryOrCopyCredential() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = StoreFlowTransport(initialKeyIDs: [])
+        let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+        let cookie = try TestFixture.cookie(value: "fake-public-session-without-keys")
+
+        try await store.completeAccountLogin(cookies: [cookie])
+
+        XCTAssertTrue(store.accountKeys.isEmpty)
+        XCTAssertNil(store.selectedAccountKeyID)
+        XCTAssertNil(store.selectedAccountKey)
+        XCTAssertFalse(store.hasUsableAPIKey)
+        XCTAssertTrue(store.modelDiscoveryModels.isEmpty)
     }
 
     @MainActor
@@ -353,14 +389,21 @@ private final class StoreFlowTransport: HTTPTransport {
 
     private let lock = NSLock()
     private let rejectBusinessKey: Bool
+    private let emptyBusinessModels: Bool
     private var requests: [CapturedRequest] = []
-    private var keyIDs: [Int64] = [101]
+    private var keyIDs: [Int64]
     private var mutableCreatedLabels: [String] = []
     private var mutableDeletedKeyIDs: [Int64] = []
     private var mutableRedemptionCodes: [String] = []
 
-    init(rejectBusinessKey: Bool = false) {
+    init(
+        rejectBusinessKey: Bool = false,
+        emptyBusinessModels: Bool = false,
+        initialKeyIDs: [Int64] = [101]
+    ) {
         self.rejectBusinessKey = rejectBusinessKey
+        self.emptyBusinessModels = emptyBusinessModels
+        keyIDs = initialKeyIDs
     }
 
     var requestSnapshot: [CapturedRequest] { locked { requests } }
@@ -531,7 +574,7 @@ private final class StoreFlowTransport: HTTPTransport {
         [
             "schema_version": 1,
             "object": "list",
-            "data": [
+            "data": emptyBusinessModels ? [] : [
                 ["id": "anthropic-only", "name": "Anthropic Only", "protocols": ["anthropic_messages"]],
                 ["id": "chat-primary", "name": "Chat Primary", "protocols": ["chat_completions", "responses"]],
                 ["id": "chat-secondary", "name": "Chat Secondary", "protocols": ["chat_completions"]],

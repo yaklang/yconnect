@@ -53,6 +53,7 @@ enum YConnectMain {
             environment: environment,
             authenticated: !CommandLine.arguments.contains("--signed-out"),
             authenticationMode: CommandLine.arguments.contains("--api-key-mode") ? .apiKey : .account,
+            includeAPIKeys: !CommandLine.arguments.contains("--without-api-keys"),
             installedClientIDs: installedClientIDs,
             operationMessage: CommandLine.arguments.contains("--with-operation-message")
                 ? "“YConnect-4”已删除"

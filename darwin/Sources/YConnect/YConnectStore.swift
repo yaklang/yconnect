@@ -203,7 +203,7 @@ final class YConnectStore: ObservableObject {
     }
 
     func recordAccessModelUse(_ modelID: String) {
-        guard businessKeyModels.contains(where: { $0.id == modelID }) else { return }
+        guard modelDiscoveryModels.contains(where: { $0.id == modelID }) else { return }
         recentAccessModelIDs.removeAll(where: { $0 == modelID })
         recentAccessModelIDs.insert(modelID, at: 0)
         if recentAccessModelIDs.count > 12 {
@@ -211,6 +211,28 @@ final class YConnectStore: ObservableObject {
         }
         if !isPreview { YConnectPreferences.recentAccessModelIDs = recentAccessModelIDs }
     }
+
+    /// Models that are safe to expose for search and ID copying in the widget.
+    /// Prefer the selected credential's live protocol-aware result. Account
+    /// sessions can still use their heat-sorted published catalog while that
+    /// secondary request is pending or temporarily returns no entries.
+    var modelDiscoveryModels: [BusinessKeyModel] {
+        if !businessKeyModels.isEmpty || phase != .account {
+            return businessKeyModels
+        }
+        guard let selectedAccountKey else { return [] }
+        let allowedModelIDs = Set(selectedAccountKey.allowedModels)
+        return accountModels.compactMap { model in
+            guard allowedModelIDs.isEmpty || allowedModelIDs.contains(model.modelID) else { return nil }
+            return BusinessKeyModel(
+                id: model.modelID,
+                name: model.displayName.isEmpty ? model.modelID : model.displayName,
+                protocols: []
+            )
+        }
+    }
+
+    var hasUsableAPIKey: Bool { currentAPIKeyValue != nil }
 
     var selectedClientCompatibleModels: [BusinessKeyModel] {
         guard let client = clients[selectedClientID] else { return [] }
@@ -672,7 +694,28 @@ final class YConnectStore: ObservableObject {
         account = newAccount
         accountKeys = keyResponse.keys
         accountModels = modelResponse.models
-        if selectedAccountKey == nil { selectedAccountKeyID = keyResponse.keys.first(where: \.active)?.id ?? keyResponse.keys.first?.id }
+        let rememberedActiveKey = keyResponse.keys.first {
+            $0.id == selectedAccountKeyID && $0.active
+        }
+        selectedAccountKeyID = rememberedActiveKey?.id
+            ?? keyResponse.keys.first(where: \.active)?.id
+            ?? keyResponse.keys.first?.id
+        businessKeyModels = []
+        // Fetch the selected Key's protocol-aware list during restoration.
+        // A remembered Key ID may not change, so a view task keyed only by that
+        // ID can otherwise run too early and leave a false zero-model state.
+        if let key = selectedAccountKey?.apiKey.nilIfEmpty {
+            do {
+                let models = try await api.keyModels(apiKey: key).data
+                if selectedAccountKey?.apiKey == key {
+                    businessKeyModels = Self.deduplicatedBusinessKeyModels(models)
+                    selectCompatibleModelIfNeeded()
+                }
+            } catch {
+                // Keep the account usable. `modelDiscoveryModels` falls back
+                // to its authenticated, heat-sorted published catalog.
+            }
+        }
         // The account catalog does not include wire-protocol capability data.
         // It must never overwrite a client-specific configuration selection;
         // `/api/key/models` is the authority for that decision.
@@ -823,6 +866,7 @@ final class YConnectStore: ObservableObject {
         environment: AppEnvironment,
         authenticated: Bool = true,
         authenticationMode: AuthenticationMode = .account,
+        includeAPIKeys: Bool = true,
         installedClientIDs: Set<ClientID>? = nil,
         operationMessage: String? = nil
     ) -> YConnectStore {
@@ -905,6 +949,11 @@ final class YConnectStore: ObservableObject {
             BusinessKeyModel(id: "glm-4.5", name: "GLM 4.5", protocols: ["chat_completions"]),
             BusinessKeyModel(id: "grok-4", name: "Grok 4", protocols: ["chat_completions", "responses"]),
         ]
+        if !includeAPIKeys {
+            store.accountKeys = []
+            store.selectedAccountKeyID = nil
+            store.businessKeyModels = []
+        }
         store.selectedModelID = "gpt-5"
         store.lastRefreshAt = Date()
         store.operationMessage = operationMessage

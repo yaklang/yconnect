@@ -42,10 +42,10 @@ enum WidgetMetrics {
         let quickModels: CGFloat
         if presentation?.showsModels == true {
             quickModels = 0
-        } else if store.businessKeyModels.isEmpty {
+        } else if store.modelDiscoveryModels.isEmpty {
             quickModels = 36
         } else {
-            quickModels = 20 + CGFloat(min(3, store.businessKeyModels.count) * 36)
+            quickModels = 20 + CGFloat(min(3, store.modelDiscoveryModels.count) * 36)
         }
         let hasExpandedSection = expandedURLs > 0 || expandedModels > 0
         let breathingRoom = hasExpandedSection ? 0 : collapsedBreathingRoom
@@ -518,10 +518,11 @@ struct WidgetView: View {
                         .frame(height: 24)
                 }
                 .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-                .foregroundStyle(.white)
-                .background(Brand.primaryFill)
+                .foregroundStyle(.white.opacity(store.hasUsableAPIKey ? 1 : 0.72))
+                .background(Brand.primaryFill.opacity(store.hasUsableAPIKey ? 1 : 0.38))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .help("复制 API Key、协议地址和当前选择的模型，便于安全分享")
+                .disabled(!store.hasUsableAPIKey)
             }
             if store.isAccountMode, !store.accountKeys.isEmpty {
                 HStack(spacing: 7) {
@@ -536,6 +537,21 @@ struct WidgetView: View {
                     .frame(height: 30)
                     copyKeyButton
                 }
+            } else if store.isAccountMode {
+                HStack(spacing: 7) {
+                    Label("尚未创建 API Key", systemImage: "key.slash")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: openAPIKeyCreation) {
+                        Text("创建一个")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(height: 24)
+                    }
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                    .foregroundStyle(Brand.accent)
+                }
+                .frame(height: 30)
             } else {
                 HStack(spacing: 7) {
                     Text("•••• •••• •••• \(store.businessKeyInfo?.key.last4 ?? "----")")
@@ -651,14 +667,24 @@ struct WidgetView: View {
             if availableAccessModels.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "cube.transparent")
-                    Text(store.isBusy ? "正在读取此 Key 的模型…" : "此 Key 暂无可用模型，请刷新后重试")
+                    Text(modelEmptyStateText)
                     Spacer()
-                    Button { Task { await store.refreshConfigurationModels() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 22, height: 22)
+                    if store.isAccountMode, store.selectedAccountKey == nil {
+                        Button(action: openAPIKeyCreation) {
+                            Text("创建 API Key")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .frame(height: 22)
+                        }
+                        .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                        .foregroundStyle(Brand.accent)
+                    } else {
+                        Button { Task { await store.refreshConfigurationModels() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                        .help("重新读取模型")
                     }
-                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
-                    .help("重新读取模型")
                 }
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -826,7 +852,14 @@ struct WidgetView: View {
     }
 
     private var availableAccessModels: [BusinessKeyModel] {
-        store.businessKeyModels
+        store.modelDiscoveryModels
+    }
+
+    private var modelEmptyStateText: String {
+        if store.isAccountMode, store.selectedAccountKey == nil {
+            return "请先选择或创建一个 API Key"
+        }
+        return store.isBusy ? "正在读取此 Key 的模型…" : "此 Key 暂无可用模型，请刷新后重试"
     }
 
     private var filteredAccessModels: [BusinessKeyModel] {
@@ -876,9 +909,11 @@ struct WidgetView: View {
         return availableAccessModels.first
     }
 
-    private func protocolSummary(for model: BusinessKeyModel) -> String {
-        let titles = model.protocols.map { AIProtocol(rawValue: $0).title }
-        return titles.isEmpty ? "协议以网关实际支持为准" : titles.joined(separator: " · ")
+    private func protocolSummary(for _: BusinessKeyModel) -> String {
+        // AIBalance translates every public compatibility entrypoint. The
+        // protocol metadata describes the upstream's native wire format, not
+        // a restriction users must follow, so exposing it here is misleading.
+        return "全协议接入"
     }
 
     private func selectAccessModel(_ model: BusinessKeyModel) {
@@ -904,6 +939,7 @@ struct WidgetView: View {
         }
         .buttonStyle(SmallSecondaryButtonStyle())
         .help("复制完整 API Key")
+        .disabled(!store.hasUsableAPIKey)
     }
 
     private func loginCard<Content: View>(
@@ -1135,7 +1171,7 @@ struct ManagerView: View {
                         "chart.pie.fill",
                         Brand.accent
                     )
-                    overviewMetric("可用模型", "\(store.businessKeyModels.count)", "cube.fill", Brand.accent.opacity(0.78))
+                    overviewMetric("可用模型", "\(store.modelDiscoveryModels.count)", "cube.fill", Brand.accent.opacity(0.78))
                 }
             }
 
