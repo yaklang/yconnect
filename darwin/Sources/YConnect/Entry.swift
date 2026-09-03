@@ -52,16 +52,15 @@ enum YConnectMain {
         let store = YConnectStore.preview(
             environment: environment,
             authenticated: !CommandLine.arguments.contains("--signed-out"),
+            authenticationMode: CommandLine.arguments.contains("--api-key-mode") ? .apiKey : .account,
             installedClientIDs: installedClientIDs,
             operationMessage: CommandLine.arguments.contains("--with-operation-message")
                 ? "“YConnect-4”已删除"
                 : nil
         )
-        if CommandLine.arguments.contains("--api-key-mode") {
-            store.preferredAuthenticationMode = .apiKey
-        }
         let presentation = WidgetPresentationState()
         presentation.showsConnectionURLs = CommandLine.arguments.contains("--expanded-urls")
+        presentation.showsModels = CommandLine.arguments.contains("--expanded-models")
         let view = WidgetView(
             store: store,
             presentation: presentation,

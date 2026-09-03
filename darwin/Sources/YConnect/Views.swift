@@ -36,11 +36,21 @@ enum WidgetMetrics {
         }
         let clientSlots = min(store.installedClientDescriptors.count, 4)
         let rows = max(1, Int(ceil(Double(clientSlots) / 2)))
-        let base: CGFloat = store.isAccountMode ? 430 : 410
+        let base: CGFloat = 330
         let expandedURLs: CGFloat = presentation?.showsConnectionURLs == true ? 180 : 0
-        let breathingRoom = presentation?.showsConnectionURLs == true ? 0 : collapsedBreathingRoom
+        let expandedModels: CGFloat = presentation?.showsModels == true ? 190 : 0
+        let quickModels: CGFloat
+        if presentation?.showsModels == true {
+            quickModels = 0
+        } else if store.businessKeyModels.isEmpty {
+            quickModels = 36
+        } else {
+            quickModels = 20 + CGFloat(min(3, store.businessKeyModels.count) * 36)
+        }
+        let hasExpandedSection = expandedURLs > 0 || expandedModels > 0
+        let breathingRoom = hasExpandedSection ? 0 : collapsedBreathingRoom
         return base + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
-            + expandedURLs + breathingRoom
+            + expandedURLs + expandedModels + quickModels + breathingRoom
     }
 }
 
@@ -48,6 +58,7 @@ enum WidgetMetrics {
 final class WidgetPresentationState: ObservableObject {
     @Published var isPinned = false
     @Published var showsConnectionURLs = false
+    @Published var showsModels = false
 }
 
 enum ManagerSection: String, CaseIterable, Identifiable {
@@ -178,6 +189,9 @@ struct WidgetView: View {
     let closeWidget: () -> Void
     @State private var apiKey = ""
     @State private var copiedEndpointID: String?
+    @State private var selectedAccessModelID: String?
+    @State private var copiedModelID: String?
+    @State private var modelSearchQuery = ""
 
     var body: some View {
         ZStack {
@@ -216,7 +230,7 @@ struct WidgetView: View {
             .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text("YConnect").font(.system(size: 18, weight: .bold))
-                Text(store.statusSummary)
+                Text(headerIdentitySummary)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -331,14 +345,7 @@ struct WidgetView: View {
     private var authenticated: some View {
         VStack(spacing: 9) {
             connectionStatusBanner
-            accountSummaryCard
             keySelectionCard
-            Button { store.copyAuthenticationInfo() } label: {
-                Label("复制接入信息", systemImage: "doc.on.doc.fill")
-            }
-            .frame(maxWidth: .infinity)
-            .buttonStyle(SmallPrimaryButtonStyle())
-            .help("复制全部协议 URL 与 API Key，便于分享接入")
 
             quickClientActions
 
@@ -385,6 +392,15 @@ struct WidgetView: View {
             }
         }
         .onAppear { store.refreshInstalledClients() }
+        .task(id: store.selectedAccountKeyID) {
+            guard store.isAccountMode else { return }
+            await store.refreshConfigurationModels()
+        }
+        .onChange(of: store.businessKeyModels.map(\.id)) { _, availableIDs in
+            if let selectedAccessModelID, !availableIDs.contains(selectedAccessModelID) {
+                self.selectedAccessModelID = nil
+            }
+        }
     }
 
     private var connectionStatusBanner: some View {
@@ -392,13 +408,42 @@ struct WidgetView: View {
             Image(systemName: "checkmark.shield.fill").foregroundStyle(Brand.green)
             Text(store.isAccountMode ? "YakCool 账户已安全连接" : "API Key 已验证并安全连接")
             Spacer()
+            if let quotaBadgeText {
+                Text(quotaBadgeText)
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(quotaBadgeIsLow ? Color.red : Brand.green)
+                    .padding(.horizontal, 7)
+                    .frame(height: 21)
+                    .background((quotaBadgeIsLow ? Color.red : Brand.green).opacity(0.10))
+                    .clipShape(Capsule())
+            }
         }
         .font(.system(size: 11, weight: .semibold))
         .padding(.horizontal, 10)
-        .frame(height: 32)
+        .frame(height: 34)
         .background(Brand.green.opacity(0.09))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.green.opacity(0.16)))
+    }
+
+    private var headerIdentitySummary: String {
+        guard store.isAuthenticated else { return store.statusSummary }
+        if store.isAccountMode {
+            return "\(store.userDisplayName) · YakCool 账户"
+        }
+        let mode = store.businessKeyInfo?.quota.modeDisplay ?? "API Key"
+        return "\(store.userDisplayName) · \(mode)"
+    }
+
+    private var quotaBadgeText: String? {
+        if store.isAccountMode {
+            return store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" }
+        }
+        return store.businessKeyInfo?.quota.metricValue
+    }
+
+    private var quotaBadgeIsLow: Bool {
+        store.businessKeyInfo?.quota.trayStatusIsLow == true
     }
 
     private var quickClientActions: some View {
@@ -447,37 +492,6 @@ struct WidgetView: View {
         }
     }
 
-    private var accountSummaryCard: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(store.userDisplayName).font(.system(size: 14, weight: .semibold))
-                    Text(store.isAccountMode
-                         ? "YakCool 账户会话"
-                         : store.businessKeyInfo?.quota.connectionModeDisplay ?? "API Key 模式")
-                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                StatusBadge(title: "已连接", good: true)
-            }
-            Divider()
-            if store.isAccountMode {
-                HStack(spacing: 18) {
-                    metric("可用余额", store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "—")
-                    metric("API Keys", "\(store.accountKeys.count) / \(store.dashboard?.apiKeyLimit ?? 0)")
-                    metric("调用次数", formatCount(store.dashboard?.accountSummary?.usageCount))
-                }
-            } else if let quota = store.businessKeyInfo?.quota {
-                HStack(spacing: 18) {
-                    metric(quota.metricTitle, quota.metricValue)
-                    metric("模式", quota.modeDisplay)
-                    metric("模型", "\(store.businessKeyModels.count)")
-                }
-            }
-        }
-        .cardStyle()
-    }
-
     private var keySelectionCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -495,6 +509,19 @@ struct WidgetView: View {
                     .foregroundStyle(Brand.accent)
                     .help("前往 API Keys 管理页创建新 Key")
                 }
+                Button {
+                    store.copyAuthenticationInfo(modelID: selectedAccessModel?.id)
+                } label: {
+                    Label("复制/分享接入信息", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .frame(height: 24)
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                .foregroundStyle(.white)
+                .background(Brand.primaryFill)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .help("复制 API Key、协议地址和当前选择的模型，便于安全分享")
             }
             if store.isAccountMode, !store.accountKeys.isEmpty {
                 HStack(spacing: 7) {
@@ -524,6 +551,7 @@ struct WidgetView: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.16)) {
                     presentation.showsConnectionURLs.toggle()
+                    if presentation.showsConnectionURLs { presentation.showsModels = false }
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -578,8 +606,296 @@ struct WidgetView: View {
                     }
                 }
             }
+
+            Divider()
+            modelSelectionSection
         }
         .cardStyle()
+    }
+
+    @ViewBuilder private var modelSelectionSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Label("模型", systemImage: "cube")
+                    .font(.system(size: 10.5, weight: .medium))
+                Text("\(availableAccessModels.count)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .frame(height: 17)
+                    .background(Color.primary.opacity(0.055))
+                    .clipShape(Capsule())
+                Spacer(minLength: 5)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        presentation.showsModels.toggle()
+                        if presentation.showsModels { presentation.showsConnectionURLs = false }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(presentation.showsModels ? "收起" : "查看全部")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(presentation.showsModels ? 90 : 0))
+                    }
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .frame(height: 22)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                .disabled(availableAccessModels.isEmpty)
+            }
+
+            if availableAccessModels.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "cube.transparent")
+                    Text(store.isBusy ? "正在读取此 Key 的模型…" : "此 Key 暂无可用模型，请刷新后重试")
+                    Spacer()
+                    Button { Task { await store.refreshConfigurationModels() } } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                    .help("重新读取模型")
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 29)
+            } else if presentation.showsModels {
+                if availableAccessModels.count > 6 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        TextField("搜索名称、模型 ID 或协议", text: $modelSearchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 10.5))
+                        if !modelSearchQuery.isEmpty {
+                            Button { modelSearchQuery = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 27)
+                    .background(Color.primary.opacity(0.045))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.07)))
+                }
+
+                if filteredAccessModels.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                        Text("没有匹配的模型")
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 72)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 3) {
+                            ForEach(filteredAccessModels) { model in
+                                modelSelectionRow(model)
+                            }
+                        }
+                        .padding(.vertical, 1)
+                    }
+                    .frame(height: min(CGFloat(filteredAccessModels.count) * 42, 142))
+                    .background(Color.primary.opacity(0.025))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.06)))
+                }
+
+            } else {
+                HStack {
+                    Text(hasRecentQuickModels ? "最近选择 / 热门推荐" : "热门推荐")
+                    Spacer()
+                    Text("无需展开，直接复制 ID")
+                }
+                .font(.system(size: 8.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                VStack(spacing: 3) {
+                    ForEach(quickAccessModels) { model in
+                        quickModelCopyRow(model)
+                    }
+                }
+            }
+        }
+    }
+
+    private func modelSelectionRow(_ model: BusinessKeyModel) -> some View {
+        let isSelected = selectedAccessModel?.id == model.id
+        return HStack(spacing: 5) {
+            Button {
+                selectAccessModel(model)
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isSelected ? Brand.accent : Color.secondary.opacity(0.45))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.name.isEmpty ? model.id : model.name)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        HStack(spacing: 5) {
+                            if !model.name.isEmpty && model.name != model.id {
+                                Text(model.id)
+                                    .font(.system(size: 8.5, design: .monospaced))
+                                    .lineLimit(1)
+                            }
+                            Text(protocolSummary(for: model))
+                                .font(.system(size: 8.5))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 3)
+                }
+                .padding(.leading, 7)
+                .frame(maxWidth: .infinity, minHeight: 39, alignment: .leading)
+                .background(isSelected ? Brand.accent.opacity(0.08) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+            .help("选择 \(model.id)")
+            modelCopyButton(model, compact: true)
+        }
+        .padding(.trailing, 4)
+        .frame(height: 39)
+    }
+
+    private func quickModelCopyRow(_ model: BusinessKeyModel) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                selectAccessModel(model)
+            } label: {
+                HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.name.isEmpty ? model.id : model.name)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(model.id)
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 5)
+                    Text(protocolSummary(for: model))
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.leading, 7)
+            .frame(maxWidth: .infinity, minHeight: 33, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+            modelCopyButton(model, compact: true)
+        }
+        .padding(.leading, 1)
+        .frame(height: 33)
+        .background(Color.primary.opacity(0.025))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.05)))
+    }
+
+    private func modelCopyButton(_ model: BusinessKeyModel, compact: Bool) -> some View {
+        Button { copyModelID(model) } label: {
+            Label(
+                copiedModelID == model.id ? "已复制" : "复制 ID",
+                systemImage: copiedModelID == model.id ? "checkmark" : "doc.on.doc"
+            )
+            .font(.system(size: compact ? 9 : 10, weight: .semibold))
+            .padding(.horizontal, compact ? 6 : 8)
+            .frame(height: compact ? 24 : 28)
+        }
+        .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+        .foregroundStyle(copiedModelID == model.id ? Brand.green : Brand.accent)
+        .background(Color.primary.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .help("复制模型 ID：\(model.id)")
+    }
+
+    private var availableAccessModels: [BusinessKeyModel] {
+        store.businessKeyModels
+    }
+
+    private var filteredAccessModels: [BusinessKeyModel] {
+        let query = modelSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return availableAccessModels }
+        return availableAccessModels.filter { model in
+            model.id.localizedCaseInsensitiveContains(query)
+                || model.name.localizedCaseInsensitiveContains(query)
+                || model.protocols.contains(where: { $0.localizedCaseInsensitiveContains(query) })
+                || model.protocols.contains(where: { AIProtocol(rawValue: $0).title.localizedCaseInsensitiveContains(query) })
+        }
+    }
+
+    private var quickAccessModels: [BusinessKeyModel] {
+        var result: [BusinessKeyModel] = []
+        var seen: Set<String> = []
+        for modelID in store.recentAccessModelIDs {
+            guard let model = availableAccessModels.first(where: { $0.id == modelID }),
+                  seen.insert(model.id).inserted else { continue }
+            result.append(model)
+            if result.count == 3 { return result }
+        }
+        // YakCool returns catalogued models in heat order; fill any missing
+        // recent slots from that server-ranked popularity order.
+        for model in availableAccessModels where seen.insert(model.id).inserted {
+            result.append(model)
+            if result.count == 3 { break }
+        }
+        return result
+    }
+
+    private var hasRecentQuickModels: Bool {
+        store.recentAccessModelIDs.contains { modelID in
+            availableAccessModels.contains(where: { $0.id == modelID })
+        }
+    }
+
+    private var selectedAccessModel: BusinessKeyModel? {
+        if let selectedAccessModelID,
+           let model = availableAccessModels.first(where: { $0.id == selectedAccessModelID }) {
+            return model
+        }
+        if let selectedModelID = store.selectedModelID,
+           let model = availableAccessModels.first(where: { $0.id == selectedModelID }) {
+            return model
+        }
+        return availableAccessModels.first
+    }
+
+    private func protocolSummary(for model: BusinessKeyModel) -> String {
+        let titles = model.protocols.map { AIProtocol(rawValue: $0).title }
+        return titles.isEmpty ? "协议以网关实际支持为准" : titles.joined(separator: " · ")
+    }
+
+    private func selectAccessModel(_ model: BusinessKeyModel) {
+        selectedAccessModelID = model.id
+        copiedModelID = nil
+        store.recordAccessModelUse(model.id)
+    }
+
+    private func copyModelID(_ model: BusinessKeyModel) {
+        selectedAccessModelID = model.id
+        store.recordAccessModelUse(model.id)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.id, forType: .string)
+        copiedModelID = model.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if copiedModelID == model.id { copiedModelID = nil }
+        }
     }
 
     private var copyKeyButton: some View {
@@ -612,19 +928,6 @@ struct WidgetView: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Brand.accent.opacity(0.22)))
-    }
-
-    private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            Text(title).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func formatCount(_ value: Int64?) -> String {
-        guard let value else { return "—" }
-        return value.formatted(.number.notation(value >= 10_000 ? .compactName : .automatic))
     }
 
     private func connectAPIKey() {
