@@ -5,6 +5,101 @@ import XCTest
 final class YConnectStoreTests: XCTestCase {
     private let origin = URL(string: "https://store-tests.yakcool.com")!
 
+    func testAccountBalanceDisplaysOneFractionDigit() {
+        let credit = CreditSummary(
+            status: "ok",
+            uid: "fixture-account",
+            tokenLimit: nil,
+            tokenUsed: nil,
+            tokenRemaining: 3_962_332_000,
+            tokenLimitEnabled: true,
+            tokenLimitRMB: nil,
+            tokenUsedRMB: nil,
+            weightedTokensPerRMB: 10_000_000,
+            error: nil
+        )
+
+        XCTAssertEqual(credit.remainingRMB, "396.2")
+    }
+
+    func testOnlyAuthenticationFailuresInvalidateStoredCredentials() {
+        XCTAssertTrue(YConnectError.invalidCredential("invalid").invalidatesStoredCredential)
+        XCTAssertTrue(
+            YConnectError.server(status: 401, code: "invalid_api_key", message: "invalid")
+                .invalidatesStoredCredential
+        )
+        XCTAssertFalse(
+            YConnectError.server(status: 500, code: "upstream_unavailable", message: "temporary")
+                .invalidatesStoredCredential
+        )
+        XCTAssertFalse(YConnectError.transport("offline").invalidatesStoredCredential)
+        XCTAssertFalse(YConnectError.file("keychain unavailable").invalidatesStoredCredential)
+        XCTAssertFalse(YConnectError.invalidResponse.invalidatesStoredCredential)
+    }
+
+    func testBusinessQuotaPresentationDistinguishesIndependentAndSharedBalance() {
+        let independent = BusinessQuota(
+            mode: "key_limit",
+            followsAccount: false,
+            approximate: false,
+            stepPercent: nil,
+            usedPercentApprox: nil,
+            remainingPercentApprox: nil,
+            currency: "CNY",
+            limitRMB: "100.0000",
+            usedRMB: "14.3610",
+            remainingRMB: "85.6390",
+            exhausted: false,
+            display: "RMB 85.6390 remaining"
+        )
+        XCTAssertEqual(independent.statusDisplay, "Key 独立额度，剩余 ¥85.6")
+        XCTAssertEqual(independent.metricTitle, "可用余额")
+        XCTAssertEqual(independent.metricValue, "¥85.6")
+        XCTAssertEqual(independent.modeDisplay, "独立限额")
+        XCTAssertEqual(independent.connectionModeDisplay, "独立余额 API Key")
+        XCTAssertEqual(independent.trayStatusText, "¥85.6")
+        XCTAssertFalse(independent.trayStatusIsLow)
+
+        let shared = BusinessQuota(
+            mode: "shared_account",
+            followsAccount: true,
+            approximate: true,
+            stepPercent: 10,
+            usedPercentApprox: 20,
+            remainingPercentApprox: 80,
+            currency: nil,
+            limitRMB: nil,
+            usedRMB: nil,
+            remainingRMB: nil,
+            exhausted: false,
+            display: "80% remaining"
+        )
+        XCTAssertEqual(shared.statusDisplay, "跟随主余额，剩余约 80%")
+        XCTAssertEqual(shared.metricTitle, "剩余比例")
+        XCTAssertEqual(shared.metricValue, "约 80%")
+        XCTAssertEqual(shared.modeDisplay, "跟随主余额")
+        XCTAssertEqual(shared.connectionModeDisplay, "跟随主余额 API Key")
+        XCTAssertEqual(shared.trayStatusText, "80%")
+        XCTAssertFalse(shared.trayStatusIsLow)
+
+        let lowShared = BusinessQuota(
+            mode: "shared_account",
+            followsAccount: true,
+            approximate: true,
+            stepPercent: 5,
+            usedPercentApprox: 71,
+            remainingPercentApprox: 29,
+            currency: nil,
+            limitRMB: nil,
+            usedRMB: nil,
+            remainingRMB: nil,
+            exhausted: false,
+            display: "29% remaining"
+        )
+        XCTAssertEqual(lowShared.trayStatusText, "29%")
+        XCTAssertTrue(lowShared.trayStatusIsLow)
+    }
+
     @MainActor
     func testAuthenticationInfoContainsKeyOnceAndEverySupportedEndpoint() {
         let key = "fixture-secret-key"
@@ -36,9 +131,10 @@ final class YConnectStoreTests: XCTestCase {
         XCTAssertFalse(store.isBusy)
         XCTAssertNil(store.errorMessage)
         XCTAssertEqual(store.businessKeyInfo?.key.label, "Fixture Business Key")
+        XCTAssertEqual(store.userDisplayName, "Fixture Business Key")
         XCTAssertEqual(store.businessKeyModels.map(\.id), ["anthropic-only", "chat-primary", "chat-secondary"])
         XCTAssertEqual(store.selectedModelID, "chat-primary")
-        XCTAssertEqual(store.statusSummary, "80% remaining")
+        XCTAssertEqual(store.statusSummary, "跟随主余额，剩余约 80%")
         XCTAssertEqual(
             try CredentialRepository(vault: vault).loadAPIKey(),
             "fake-business-key-for-store-tests"

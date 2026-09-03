@@ -68,9 +68,10 @@ struct CreditSummary: Codable, Equatable {
 
     private static let rmbFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 4
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
         return formatter
     }()
 }
@@ -254,6 +255,75 @@ struct BusinessQuota: Codable, Equatable {
         case usedRMB = "used_rmb"
         case remainingRMB = "remaining_rmb"
     }
+
+    var followsMainBalance: Bool {
+        followsAccount || mode == "shared_account" || mode == "account"
+    }
+
+    var formattedRemainingRMB: String? {
+        guard let remainingRMB,
+              let value = Decimal(string: remainingRMB, locale: Locale(identifier: "en_US_POSIX")) else {
+            return nil
+        }
+        return Self.rmbFormatter.string(from: value as NSDecimalNumber)
+    }
+
+    var remainingPercentValue: Int? {
+        if let remainingPercentApprox {
+            return min(100, max(0, remainingPercentApprox))
+        }
+        if let usedPercentApprox {
+            return 100 - min(100, max(0, usedPercentApprox))
+        }
+        return nil
+    }
+
+    var statusDisplay: String {
+        if followsMainBalance {
+            return remainingPercentValue.map { "跟随主余额，剩余约 \($0)%" } ?? "跟随主余额"
+        }
+        return formattedRemainingRMB.map { "Key 独立额度，剩余 ¥\($0)" } ?? display
+    }
+
+    var metricTitle: String {
+        followsMainBalance ? "剩余比例" : "可用余额"
+    }
+
+    var metricValue: String {
+        if followsMainBalance {
+            return remainingPercentValue.map { "约 \($0)%" } ?? display
+        }
+        return formattedRemainingRMB.map { "¥\($0)" } ?? display
+    }
+
+    var modeDisplay: String {
+        followsMainBalance ? "跟随主余额" : "独立限额"
+    }
+
+    var connectionModeDisplay: String {
+        followsMainBalance ? "跟随主余额 API Key" : "独立余额 API Key"
+    }
+
+    var trayStatusText: String? {
+        if followsMainBalance {
+            return remainingPercentValue.map { "\($0)%" }
+        }
+        return formattedRemainingRMB.map { "¥\($0)" }
+    }
+
+    var trayStatusIsLow: Bool {
+        guard followsMainBalance, let remainingPercentValue else { return false }
+        return remainingPercentValue < 30
+    }
+
+    private static let rmbFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
+        return formatter
+    }()
 }
 
 struct BusinessKeyInfoResponse: Codable, Equatable {
@@ -374,6 +444,17 @@ enum YConnectError: LocalizedError, Equatable {
             return "服务返回了无法识别的数据"
         case .server(_, _, let message):
             return message
+        }
+    }
+
+    var invalidatesStoredCredential: Bool {
+        switch self {
+        case .invalidCredential:
+            return true
+        case .server(let status, _, _):
+            return status == 401
+        case .invalidResponse, .transport, .unsupported, .file:
+            return false
         }
     }
 }

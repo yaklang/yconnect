@@ -212,7 +212,16 @@ final class YConnectStore: ObservableObject {
     }
 
     var userDisplayName: String {
-        dashboard?.user.displayName ?? account?.displayName ?? businessKeyInfo?.key.label ?? "未登录"
+        switch phase {
+        case .account:
+            return dashboard?.user.displayName ?? account?.displayName ?? "YakCool 用户"
+        case .apiKey:
+            // API Key sessions must only show the privacy-filtered identity
+            // returned for that Key, never account data from another mode.
+            return businessKeyInfo?.key.label ?? "API Key"
+        case .signedOut, .restoring:
+            return "未登录"
+        }
     }
 
     var statusSummary: String {
@@ -224,7 +233,7 @@ final class YConnectStore: ObservableObject {
             if credit.status != "ok" && credit.status != "synced" { return "额度状态：\(credit.status)" }
             return credit.remainingRMB.map { "余额约 ¥\($0)" } ?? "账户已连接"
         case .apiKey:
-            return businessKeyInfo?.quota.display ?? "API Key 已连接"
+            return businessKeyInfo?.quota.statusDisplay ?? "API Key 已连接"
         }
     }
 
@@ -265,12 +274,17 @@ final class YConnectStore: ObservableObject {
             }
             phase = .signedOut
         } catch {
-            try? credentials.deleteWebCookies()
-            try? credentials.deleteAPIKey()
+            let invalidatesCredential = (error as? YConnectError)?.invalidatesStoredCredential ?? false
+            if invalidatesCredential {
+                try? credentials.deleteWebCookies()
+                try? credentials.deleteAPIKey()
+            }
             webCookies = []
             standaloneAPIKey = nil
             phase = .signedOut
-            errorMessage = "已保存的登录信息失效，请重新登录。\n\(error.localizedDescription)"
+            errorMessage = invalidatesCredential
+                ? "已保存的登录信息失效，请重新登录。\n\(error.localizedDescription)"
+                : "暂时无法恢复登录，已保留本地凭证。\n\(error.localizedDescription)"
         }
     }
 

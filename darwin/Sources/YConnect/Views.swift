@@ -452,7 +452,9 @@ struct WidgetView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(store.userDisplayName).font(.system(size: 14, weight: .semibold))
-                    Text(store.isAccountMode ? "YakCool 账户会话" : "独立 API Key 模式")
+                    Text(store.isAccountMode
+                         ? "YakCool 账户会话"
+                         : store.businessKeyInfo?.quota.connectionModeDisplay ?? "API Key 模式")
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -467,8 +469,8 @@ struct WidgetView: View {
                 }
             } else if let quota = store.businessKeyInfo?.quota {
                 HStack(spacing: 18) {
-                    metric("额度", quota.remainingRMB.map { "¥\($0)" } ?? quota.display)
-                    metric("模式", quota.approximate ? "约数" : "独立限额")
+                    metric(quota.metricTitle, quota.metricValue)
+                    metric("模式", quota.modeDisplay)
                     metric("模型", "\(store.businessKeyModels.count)")
                 }
             }
@@ -824,7 +826,12 @@ struct ManagerView: View {
                     overviewMetric("可用余额", store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "—", "creditcard.fill", Brand.accent)
                     overviewMetric("API Keys", "\(store.accountKeys.count) / \(store.dashboard?.apiKeyLimit ?? 0)", "key.horizontal.fill", Brand.accent.opacity(0.78))
                 } else {
-                    overviewMetric("额度状态", store.businessKeyInfo?.quota.display ?? "—", "chart.pie.fill", Brand.accent)
+                    overviewMetric(
+                        store.businessKeyInfo?.quota.metricTitle ?? "额度状态",
+                        store.businessKeyInfo?.quota.metricValue ?? "—",
+                        "chart.pie.fill",
+                        Brand.accent
+                    )
                     overviewMetric("可用模型", "\(store.businessKeyModels.count)", "cube.fill", Brand.accent.opacity(0.78))
                 }
             }
@@ -896,7 +903,7 @@ struct ManagerView: View {
                             .buttonStyle(SmallSecondaryButtonStyle())
                     }
                     .padding(18).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
-                    Text(info.quota.display).font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(info.quota.statusDisplay).font(.system(size: 13)).foregroundStyle(.secondary)
                 }
             }
         }
