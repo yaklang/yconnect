@@ -220,7 +220,8 @@ final class YConnectStore: ObservableObject {
         if !businessKeyModels.isEmpty || phase != .account {
             return businessKeyModels
         }
-        let allowedModelIDs = Set(selectedAccountKey?.allowedModels ?? [])
+        guard let selectedAccountKey else { return [] }
+        let allowedModelIDs = Set(selectedAccountKey.allowedModels)
         return accountModels.compactMap { model in
             guard allowedModelIDs.isEmpty || allowedModelIDs.contains(model.modelID) else { return nil }
             return BusinessKeyModel(
@@ -230,6 +231,8 @@ final class YConnectStore: ObservableObject {
             )
         }
     }
+
+    var hasUsableAPIKey: Bool { currentAPIKeyValue != nil }
 
     var selectedClientCompatibleModels: [BusinessKeyModel] {
         guard let client = clients[selectedClientID] else { return [] }
@@ -691,7 +694,12 @@ final class YConnectStore: ObservableObject {
         account = newAccount
         accountKeys = keyResponse.keys
         accountModels = modelResponse.models
-        if selectedAccountKey == nil { selectedAccountKeyID = keyResponse.keys.first(where: \.active)?.id ?? keyResponse.keys.first?.id }
+        let rememberedActiveKey = keyResponse.keys.first {
+            $0.id == selectedAccountKeyID && $0.active
+        }
+        selectedAccountKeyID = rememberedActiveKey?.id
+            ?? keyResponse.keys.first(where: \.active)?.id
+            ?? keyResponse.keys.first?.id
         businessKeyModels = []
         // Fetch the selected Key's protocol-aware list during restoration.
         // A remembered Key ID may not change, so a view task keyed only by that
@@ -858,6 +866,7 @@ final class YConnectStore: ObservableObject {
         environment: AppEnvironment,
         authenticated: Bool = true,
         authenticationMode: AuthenticationMode = .account,
+        includeAPIKeys: Bool = true,
         installedClientIDs: Set<ClientID>? = nil,
         operationMessage: String? = nil
     ) -> YConnectStore {
@@ -940,6 +949,11 @@ final class YConnectStore: ObservableObject {
             BusinessKeyModel(id: "glm-4.5", name: "GLM 4.5", protocols: ["chat_completions"]),
             BusinessKeyModel(id: "grok-4", name: "Grok 4", protocols: ["chat_completions", "responses"]),
         ]
+        if !includeAPIKeys {
+            store.accountKeys = []
+            store.selectedAccountKeyID = nil
+            store.businessKeyModels = []
+        }
         store.selectedModelID = "gpt-5"
         store.lastRefreshAt = Date()
         store.operationMessage = operationMessage

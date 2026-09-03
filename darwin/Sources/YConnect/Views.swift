@@ -518,10 +518,11 @@ struct WidgetView: View {
                         .frame(height: 24)
                 }
                 .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-                .foregroundStyle(.white)
-                .background(Brand.primaryFill)
+                .foregroundStyle(.white.opacity(store.hasUsableAPIKey ? 1 : 0.72))
+                .background(Brand.primaryFill.opacity(store.hasUsableAPIKey ? 1 : 0.38))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .help("复制 API Key、协议地址和当前选择的模型，便于安全分享")
+                .disabled(!store.hasUsableAPIKey)
             }
             if store.isAccountMode, !store.accountKeys.isEmpty {
                 HStack(spacing: 7) {
@@ -536,6 +537,21 @@ struct WidgetView: View {
                     .frame(height: 30)
                     copyKeyButton
                 }
+            } else if store.isAccountMode {
+                HStack(spacing: 7) {
+                    Label("尚未创建 API Key", systemImage: "key.slash")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: openAPIKeyCreation) {
+                        Text("创建一个")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(height: 24)
+                    }
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                    .foregroundStyle(Brand.accent)
+                }
+                .frame(height: 30)
             } else {
                 HStack(spacing: 7) {
                     Text("•••• •••• •••• \(store.businessKeyInfo?.key.last4 ?? "----")")
@@ -651,14 +667,24 @@ struct WidgetView: View {
             if availableAccessModels.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "cube.transparent")
-                    Text(store.isBusy ? "正在读取此 Key 的模型…" : "此 Key 暂无可用模型，请刷新后重试")
+                    Text(modelEmptyStateText)
                     Spacer()
-                    Button { Task { await store.refreshConfigurationModels() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 22, height: 22)
+                    if store.isAccountMode, store.selectedAccountKey == nil {
+                        Button(action: openAPIKeyCreation) {
+                            Text("创建 API Key")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .frame(height: 22)
+                        }
+                        .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                        .foregroundStyle(Brand.accent)
+                    } else {
+                        Button { Task { await store.refreshConfigurationModels() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                        .help("重新读取模型")
                     }
-                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
-                    .help("重新读取模型")
                 }
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -829,6 +855,13 @@ struct WidgetView: View {
         store.modelDiscoveryModels
     }
 
+    private var modelEmptyStateText: String {
+        if store.isAccountMode, store.selectedAccountKey == nil {
+            return "请先选择或创建一个 API Key"
+        }
+        return store.isBusy ? "正在读取此 Key 的模型…" : "此 Key 暂无可用模型，请刷新后重试"
+    }
+
     private var filteredAccessModels: [BusinessKeyModel] {
         let query = modelSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return availableAccessModels }
@@ -904,6 +937,7 @@ struct WidgetView: View {
         }
         .buttonStyle(SmallSecondaryButtonStyle())
         .help("复制完整 API Key")
+        .disabled(!store.hasUsableAPIKey)
     }
 
     private func loginCard<Content: View>(
