@@ -909,9 +909,11 @@ struct WidgetView: View {
         return availableAccessModels.first
     }
 
-    private func protocolSummary(for model: BusinessKeyModel) -> String {
-        let titles = model.protocols.map { AIProtocol(rawValue: $0).title }
-        return titles.isEmpty ? "协议以网关实际支持为准" : titles.joined(separator: " · ")
+    private func protocolSummary(for _: BusinessKeyModel) -> String {
+        // AIBalance translates every public compatibility entrypoint. The
+        // protocol metadata describes the upstream's native wire format, not
+        // a restriction users must follow, so exposing it here is misleading.
+        return "全协议接入"
     }
 
     private func selectAccessModel(_ model: BusinessKeyModel) {
