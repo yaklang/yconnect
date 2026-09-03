@@ -8,6 +8,25 @@ final class ViewBehaviorTests: XCTestCase {
         XCTAssertEqual(AuthenticationMode.apiKey.title, "YAKCOOL APIKEY")
     }
 
+    @MainActor
+    func testSignedOutWidgetHeightTracksAuthenticationModeAndViewport() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YConnectSignedOutMetricsTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = YConnectStore.preview(environment: .preview(at: root), authenticated: false)
+        let presentation = WidgetPresentationState()
+
+        store.preferredAuthenticationMode = .account
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 380)
+
+        store.preferredAuthenticationMode = .apiKey
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 420)
+
+        presentation.maximumHeight = 360
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 360)
+        XCTAssertTrue(WidgetMetrics.requiresVerticalScrolling(for: store, presentation: presentation))
+    }
+
     func testNextYConnectLabelStartsAfterExistingKeyCountAndAvoidsCollisions() {
         XCTAssertEqual(APIKeyLabelSuggestion.next(existingLabels: []), "YConnect-1")
         XCTAssertEqual(

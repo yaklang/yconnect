@@ -27,12 +27,16 @@ enum WidgetMetrics {
     static let width: CGFloat = 390
     static let cornerRadius: CGFloat = 18
     static let collapsedBreathingRoom: CGFloat = 28
+    static let signedOutAccountHeight: CGFloat = 380
+    static let signedOutAPIKeyHeight: CGFloat = 420
 
     @MainActor
-    static func height(for store: YConnectStore, presentation: WidgetPresentationState? = nil) -> CGFloat {
+    static func idealHeight(for store: YConnectStore, presentation: WidgetPresentationState? = nil) -> CGFloat {
         if store.phase == .restoring { return 250 }
         if !store.isAuthenticated {
-            return store.preferredAuthenticationMode == .account ? 355 : 405
+            return store.preferredAuthenticationMode == .account
+                ? signedOutAccountHeight
+                : signedOutAPIKeyHeight
         }
         let clientSlots = min(store.installedClientDescriptors.count, 4)
         let rows = max(1, Int(ceil(Double(clientSlots) / 2)))
@@ -52,6 +56,22 @@ enum WidgetMetrics {
         return base + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
             + expandedURLs + expandedModels + quickModels + breathingRoom
     }
+
+    @MainActor
+    static func height(for store: YConnectStore, presentation: WidgetPresentationState? = nil) -> CGFloat {
+        let idealHeight = idealHeight(for: store, presentation: presentation)
+        guard let maximumHeight = presentation?.maximumHeight else { return idealHeight }
+        return min(idealHeight, maximumHeight)
+    }
+
+    @MainActor
+    static func requiresVerticalScrolling(
+        for store: YConnectStore,
+        presentation: WidgetPresentationState
+    ) -> Bool {
+        idealHeight(for: store, presentation: presentation)
+            > height(for: store, presentation: presentation)
+    }
 }
 
 @MainActor
@@ -59,6 +79,7 @@ final class WidgetPresentationState: ObservableObject {
     @Published var isPinned = false
     @Published var showsConnectionURLs = false
     @Published var showsModels = false
+    @Published var maximumHeight: CGFloat?
 }
 
 enum ManagerSection: String, CaseIterable, Identifiable {
@@ -197,16 +218,14 @@ struct WidgetView: View {
         ZStack {
             VisualEffect()
             Color(nsColor: .windowBackgroundColor).opacity(0.72)
-            VStack(spacing: 9) {
-                header
-                switch store.phase {
-                case .restoring: restoring
-                case .signedOut: login
-                case .account, .apiKey: authenticated
+            if WidgetMetrics.requiresVerticalScrolling(for: store, presentation: presentation) {
+                ScrollView(.vertical, showsIndicators: true) {
+                    widgetContent
                 }
+            } else {
+                widgetContent
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store, presentation: presentation))
         .clipShape(RoundedRectangle(cornerRadius: WidgetMetrics.cornerRadius, style: .continuous))
@@ -219,6 +238,19 @@ struct WidgetView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+    }
+
+    private var widgetContent: some View {
+        VStack(spacing: 9) {
+            header
+            switch store.phase {
+            case .restoring: restoring
+            case .signedOut: login
+            case .account, .apiKey: authenticated
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var header: some View {

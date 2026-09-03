@@ -112,6 +112,17 @@ final class PositioningTests: XCTestCase {
         XCTAssertEqual(upperRight.maxY, visibleFrame.maxY - WidgetPositioning.margin)
     }
 
+    func testOversizedTrayWidgetIsConstrainedInsideVisibleFrame() {
+        let visibleFrame = NSRect(x: 100, y: 200, width: 420, height: 500)
+        let frame = WidgetPositioning.frame(
+            size: NSSize(width: 360, height: 900),
+            trayAnchor: NSRect(x: 300, y: 680, width: 20, height: 20),
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 130, y: 208, width: 360, height: 484))
+    }
+
     func testQuartzConversionAndNearEquality() {
         XCTAssertEqual(
             WidgetPositioning.appKitFrame(

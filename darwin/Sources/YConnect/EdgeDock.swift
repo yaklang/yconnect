@@ -53,11 +53,15 @@ enum EdgeWidgetPositioning {
     static let screenMargin: CGFloat = 8
 
     static func frame(size: NSSize, tabFrame: NSRect, onLeft: Bool, visibleFrame: NSRect) -> NSRect {
-        let preferredX = onLeft ? tabFrame.maxX + gap : tabFrame.minX - size.width - gap
-        let x = max(visibleFrame.minX + screenMargin, min(preferredX, visibleFrame.maxX - size.width - screenMargin))
-        let preferredY = tabFrame.midY - size.height / 2
-        let y = max(visibleFrame.minY + screenMargin, min(preferredY, visibleFrame.maxY - size.height - screenMargin))
-        return NSRect(origin: NSPoint(x: x, y: y), size: size)
+        let fittedSize = NSSize(
+            width: size.width,
+            height: min(size.height, max(1, visibleFrame.height - screenMargin * 2))
+        )
+        let preferredX = onLeft ? tabFrame.maxX + gap : tabFrame.minX - fittedSize.width - gap
+        let x = max(visibleFrame.minX + screenMargin, min(preferredX, visibleFrame.maxX - fittedSize.width - screenMargin))
+        let preferredY = tabFrame.midY - fittedSize.height / 2
+        let y = max(visibleFrame.minY + screenMargin, min(preferredY, visibleFrame.maxY - fittedSize.height - screenMargin))
+        return NSRect(origin: NSPoint(x: x, y: y), size: fittedSize)
     }
 }
 

@@ -6,11 +6,23 @@ enum WidgetPositioning {
     static let margin: CGFloat = 8
 
     static func frame(size: NSSize, trayAnchor: NSRect, visibleFrame: NSRect) -> NSRect {
-        let preferredX = trayAnchor.midX - size.width / 2
-        let x = max(visibleFrame.minX + margin, min(preferredX, visibleFrame.maxX - size.width - margin))
-        let preferredY = trayAnchor.minY - size.height - margin
-        let y = max(visibleFrame.minY + margin, min(preferredY, visibleFrame.maxY - size.height - margin))
-        return NSRect(x: x, y: y, width: size.width, height: size.height)
+        let fittedSize = constrainedSize(size, visibleFrame: visibleFrame)
+        let preferredX = trayAnchor.midX - fittedSize.width / 2
+        let x = max(visibleFrame.minX + margin, min(preferredX, visibleFrame.maxX - fittedSize.width - margin))
+        let preferredY = trayAnchor.minY - fittedSize.height - margin
+        let y = max(visibleFrame.minY + margin, min(preferredY, visibleFrame.maxY - fittedSize.height - margin))
+        return NSRect(x: x, y: y, width: fittedSize.width, height: fittedSize.height)
+    }
+
+    static func maximumHeight(in visibleFrame: NSRect) -> CGFloat {
+        max(1, visibleFrame.height - margin * 2)
+    }
+
+    private static func constrainedSize(_ size: NSSize, visibleFrame: NSRect) -> NSSize {
+        NSSize(
+            width: size.width,
+            height: min(size.height, maximumHeight(in: visibleFrame))
+        )
     }
 
     static func appKitFrame(fromQuartz frame: CGRect, primaryScreenTop: CGFloat) -> NSRect {
@@ -117,7 +129,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.$isBusy.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$operationMessage.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$installedClientIDs.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
+        store.$preferredAuthenticationMode.sink { [weak self] _ in
+            Task { @MainActor in self?.updateWidgetSize() }
+        }.store(in: &subscriptions)
         widgetPresentation.$showsConnectionURLs.sink { [weak self] _ in
+            Task { @MainActor in self?.updateWidgetSize() }
+        }.store(in: &subscriptions)
+        widgetPresentation.$showsModels.sink { [weak self] _ in
             Task { @MainActor in self?.updateWidgetSize() }
         }.store(in: &subscriptions)
     }
@@ -388,15 +406,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateWidgetSize() {
         guard let panel = widgetPanel else { return }
         let oldFrame = panel.frame
-        let newSize = NSSize(width: WidgetMetrics.width, height: currentWidgetHeight)
-        panel.setContentSize(newSize)
         switch widgetOrigin {
         case .tray:
-            if let anchor = trayAnchor() { positionWidget(panel, anchor: anchor) }
-            else { panel.setFrameOrigin(NSPoint(x: oldFrame.minX, y: oldFrame.maxY - newSize.height)) }
+            if let anchor = trayAnchor() {
+                positionWidget(panel, anchor: anchor)
+                return
+            }
         case .edge(let anchor, let onLeft):
             positionWidgetBesideEdge(panel, anchor: anchor, onLeft: onLeft)
+            return
         }
+        let newSize = NSSize(width: WidgetMetrics.width, height: currentWidgetHeight)
+        panel.setContentSize(newSize)
+        panel.setFrameOrigin(NSPoint(x: oldFrame.minX, y: oldFrame.maxY - newSize.height))
     }
 
     private func trayAnchor() -> NSRect? {
@@ -422,6 +444,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func positionWidget(_ panel: NSPanel, anchor: NSRect) {
         guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) })
                 ?? statusItem.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        widgetPresentation.maximumHeight = WidgetPositioning.maximumHeight(in: screen.visibleFrame)
         panel.setFrame(WidgetPositioning.frame(
             size: NSSize(width: WidgetMetrics.width, height: currentWidgetHeight),
             trayAnchor: anchor,
@@ -432,6 +455,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func positionWidgetBesideEdge(_ panel: NSPanel, anchor: NSRect, onLeft: Bool) {
         guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) })
                 ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        widgetPresentation.maximumHeight = WidgetPositioning.maximumHeight(in: screen.visibleFrame)
         panel.setFrame(EdgeWidgetPositioning.frame(
             size: NSSize(width: WidgetMetrics.width, height: currentWidgetHeight),
             tabFrame: anchor,
