@@ -166,6 +166,16 @@ enum YConnectPreferences {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: prefix + "selected-client-id") }
     }
 
+    static var recentClientIDs: [ClientID] {
+        get {
+            (UserDefaults.standard.stringArray(forKey: prefix + "recent-client-ids") ?? [])
+                .map(ClientID.init(rawValue:))
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.rawValue), forKey: prefix + "recent-client-ids")
+        }
+    }
+
     static func selectedModelID(for clientID: ClientID) -> String? {
         UserDefaults.standard.string(forKey: prefix + "selected-model-id." + clientID.rawValue)
     }

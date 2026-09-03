@@ -68,11 +68,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        configureMainMenu()
         configureStatusItem()
         configureSubscriptions()
         edgeDock.update()
         launchAtLogin.enableOnFirstLaunchIfNeeded()
 
+        let isSmokeRun = CommandLine.arguments.contains("--smoke-edge-widget-focus")
+            || CommandLine.arguments.contains("--smoke-widget-focus")
+            || CommandLine.arguments.contains("--smoke-widget-transient")
         if CommandLine.arguments.contains("--smoke-edge-widget-focus") {
             runEdgeWidgetSmoke()
         } else if CommandLine.arguments.contains("--smoke-widget-focus")
@@ -80,7 +84,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             waitForStableTrayAnchor()
         }
 
-        Task { await store.restoreSession() }
+        // Smoke runs validate window behavior with an unauthenticated fixture.
+        // Avoid an interactive Keychain unlock from blocking their timers.
+        if !isSmokeRun {
+            Task { await store.restoreSession() }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -105,6 +113,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.$accountKeys.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
         store.$isBusy.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$operationMessage.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
+        store.$installedClientIDs.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
+        widgetPresentation.$showsConnectionURLs.sink { [weak self] _ in
+            Task { @MainActor in self?.updateWidgetSize() }
+        }.store(in: &subscriptions)
     }
 
     private func refreshPresentedUI() {
@@ -137,15 +149,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         manager.target = self
         if store.isAuthenticated {
             menu.addItem(.separator())
-            let copy = menu.addItem(withTitle: "复制当前 API Key", action: #selector(copyAPIKeyAction), keyEquivalent: "")
-            copy.target = self
-            let configure = menu.addItem(
-                withTitle: "应用到 \(store.selectedClientDescriptor.shortName)",
-                action: #selector(configureClientAction),
-                keyEquivalent: ""
-            )
-            configure.target = self
-            configure.isEnabled = !store.isBusy
+            let copyInfo = menu.addItem(withTitle: "复制接入信息", action: #selector(copyAuthenticationInfoAction), keyEquivalent: "")
+            copyInfo.target = self
+            let copyKey = menu.addItem(withTitle: "复制 Key", action: #selector(copyAPIKeyAction), keyEquivalent: "")
+            copyKey.target = self
+            let configure = NSMenuItem(title: "配置已安装客户端", action: nil, keyEquivalent: "")
+            let clientsMenu = NSMenu(title: "配置已安装客户端")
+            for descriptor in store.installedClientDescriptors {
+                let item = clientsMenu.addItem(withTitle: descriptor.name, action: #selector(openInstalledClientAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = descriptor.id.rawValue
+                item.isEnabled = !store.isBusy
+            }
+            if store.installedClientDescriptors.isEmpty {
+                let empty = clientsMenu.addItem(withTitle: "未检测到受支持客户端", action: nil, keyEquivalent: "")
+                empty.isEnabled = false
+            }
+            clientsMenu.addItem(.separator())
+            let all = clientsMenu.addItem(withTitle: "打开客户端适配中心…", action: #selector(showClientsManagerAction), keyEquivalent: "")
+            all.target = self
+            configure.submenu = clientsMenu
+            menu.addItem(configure)
             let refresh = menu.addItem(withTitle: "刷新账户状态", action: #selector(refreshAction), keyEquivalent: "r")
             refresh.target = self
             refresh.isEnabled = !store.isBusy
@@ -166,11 +190,41 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .overview) }
+    @objc private func showClientsManagerAction() { showManager(section: .clients) }
+    @objc private func copyAuthenticationInfoAction() { _ = store.copyAuthenticationInfo() }
     @objc private func copyAPIKeyAction() { _ = store.copyCurrentAPIKey() }
-    @objc private func configureClientAction() { Task { await store.applySelectedClientConfiguration() } }
+    @objc private func openInstalledClientAction(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String else { return }
+        store.selectClientForManagement(ClientID(rawValue: rawValue))
+        showManager(section: .clients)
+    }
     @objc private func refreshAction() { Task { await store.refresh() } }
     @objc private func toggleEdgeDock() { edgeDock.toggleEnabled() }
     @objc private func quit() { NSApp.terminate(nil) }
+
+    private func configureMainMenu() {
+        let mainMenu = NSMenu(title: "YConnect")
+        let applicationItem = NSMenuItem()
+        let applicationMenu = NSMenu(title: "YConnect")
+        applicationMenu.addItem(withTitle: "关于 YConnect", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        applicationMenu.addItem(.separator())
+        let quitItem = applicationMenu.addItem(withTitle: "退出 YConnect", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.target = NSApp
+        applicationItem.submenu = applicationMenu
+        mainMenu.addItem(applicationItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
+    }
 
     private func toggleWidget() {
         if widgetPanel?.isVisible == true { hideWidget() } else { showWidget() }
@@ -224,13 +278,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.animationBehavior = .utilityWindow
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
-        panel.contentViewController = NSHostingController(rootView: WidgetView(
+        let hostingController = NSHostingController(rootView: WidgetView(
             store: store,
             presentation: widgetPresentation,
             beginAccountLogin: { [weak self] in self?.beginAccountLogin() },
             openManager: { [weak self] section in self?.showManager(section: section) },
+            openAPIKeyCreation: { [weak self] in self?.showAPIKeyCreation() },
             closeWidget: { [weak self] in self?.hideWidget() }
         ))
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.cornerRadius = WidgetMetrics.cornerRadius
+        hostingController.view.layer?.cornerCurve = .continuous
+        hostingController.view.layer?.masksToBounds = true
+        panel.contentViewController = hostingController
         widgetPanel = panel
         return panel
     }
@@ -264,6 +324,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func showManager(section: ManagerSection) {
         managerNavigation.selection = section
+        presentManagerWindow()
+    }
+
+    private func showAPIKeyCreation() {
+        managerNavigation.requestAPIKeyCreation()
+        presentManagerWindow()
+    }
+
+    private func presentManagerWindow() {
         hideWidget()
         let window = preparedManagerWindow()
         NSApp.setActivationPolicy(.regular)
@@ -296,7 +365,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return window
     }
 
-    private var currentWidgetHeight: CGFloat { WidgetMetrics.height(for: store) }
+    private var currentWidgetHeight: CGFloat { WidgetMetrics.height(for: store, presentation: widgetPresentation) }
 
     private func updateWidgetSize() {
         guard let panel = widgetPanel else { return }

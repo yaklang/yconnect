@@ -324,6 +324,40 @@ final class MultiClientStoreTests: XCTestCase {
         XCTAssertEqual(store.operationMessage, "部分检查未通过")
     }
 
+    @MainActor
+    func testInstalledClientFilteringAndRecentSelectionOrder() throws {
+        let root = try makeTemporaryRoot(named: "InstalledSorting")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let openCode = RecordingStoreClient(
+            id: .openCode,
+            protocols: [.chatCompletions],
+            target: root.appendingPathComponent("opencode.json"),
+            applyMessage: "OpenCode applied"
+        )
+        let claude = RecordingStoreClient(
+            id: .claudeCode,
+            protocols: [.anthropicMessages],
+            target: root.appendingPathComponent("claude.json"),
+            applyMessage: "Claude applied"
+        )
+        let registry = try ClientConfigurationRegistry([openCode, claude])
+        let store = YConnectStore(
+            environment: .preview(at: root),
+            credentialVault: MemoryCredentialVault(),
+            clientRegistry: registry,
+            installationDetector: StaticClientInstallationDetector([.openCode, .claudeCode]),
+            preview: true
+        )
+
+        XCTAssertEqual(store.installedClientDescriptors.map(\.id), [.openCode, .claudeCode])
+        store.selectClientForManagement(.claudeCode)
+        XCTAssertEqual(store.selectedClientID, .claudeCode)
+        XCTAssertEqual(store.installedClientDescriptors.map(\.id), [.claudeCode, .openCode])
+
+        store.selectClientForManagement(.pi)
+        XCTAssertEqual(store.selectedClientID, .claudeCode)
+    }
+
     private func makeTemporaryRoot(named name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

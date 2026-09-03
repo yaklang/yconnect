@@ -6,6 +6,23 @@ final class YConnectStoreTests: XCTestCase {
     private let origin = URL(string: "https://store-tests.yakcool.com")!
 
     @MainActor
+    func testAuthenticationInfoContainsKeyOnceAndEverySupportedEndpoint() {
+        let key = "fixture-secret-key"
+        let value = YConnectStore.authenticationInfo(apiKey: key)
+
+        XCTAssertEqual(value.components(separatedBy: key).count - 1, 1)
+        XCTAssertTrue(value.contains("YConnect · YakCool 接入信息"))
+        XCTAssertTrue(value.contains("由 YConnect 生成并复制"))
+        XCTAssertTrue(value.contains("选择下面任一兼容协议接入"))
+        XCTAssertTrue(value.contains("请只分享给可信的人"))
+        for endpoint in YConnectStore.accessEndpoints {
+            XCTAssertTrue(value.contains("\(endpoint.name): \(endpoint.url)"))
+        }
+        XCTAssertTrue(value.contains("Authorization: Bearer"))
+        XCTAssertTrue(value.contains("x-api-key"))
+    }
+
+    @MainActor
     func testBusinessKeySignInPersistsOnlyAfterBothEndpointsSucceed() async throws {
         let context = try makeContext()
         defer { context.remove() }

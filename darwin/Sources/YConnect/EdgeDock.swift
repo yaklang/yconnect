@@ -222,7 +222,7 @@ final class YConnectEdgeDockController: NSObject {
             self?.onOpenManager(.clients)
         }
         view.onCopy = { [weak self] in
-            _ = self?.store.copyCurrentAPIKey()
+            _ = self?.store.copyAuthenticationInfo()
             self?.refreshActionState()
         }
         view.update(authenticated: store.isAuthenticated, busy: store.isBusy)
@@ -347,7 +347,7 @@ private final class EdgeDockStripView: NSVisualEffectView {
     var onCopy: (() -> Void)?
 
     private lazy var configureButton = makeButton(title: "配置客户端", symbol: "arrow.triangle.2.circlepath", action: #selector(configureClicked), primary: true)
-    private lazy var copyButton = makeButton(title: "复制 API Key", symbol: "doc.on.doc", action: #selector(copyClicked), primary: false)
+    private lazy var copyButton = makeButton(title: "复制接入信息", symbol: "doc.on.doc", action: #selector(copyClicked), primary: false)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

@@ -10,8 +10,42 @@ enum AuthenticationPhase: Equatable {
     var isAuthenticated: Bool { self == .account || self == .apiKey }
 }
 
+struct YakCoolAccessEndpoint: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let url: String
+}
+
 @MainActor
 final class YConnectStore: ObservableObject {
+    static let accessEndpoints: [YakCoolAccessEndpoint] = [
+        YakCoolAccessEndpoint(
+            id: "openai-base",
+            name: "OpenAI 兼容基址",
+            url: "https://aibalance.yaklang.com/v1"
+        ),
+        YakCoolAccessEndpoint(
+            id: "chat-completions",
+            name: "Chat Completions",
+            url: "https://aibalance.yaklang.com/v1/chat/completions"
+        ),
+        YakCoolAccessEndpoint(
+            id: "responses",
+            name: "Responses API",
+            url: "https://aibalance.yaklang.com/v1/responses"
+        ),
+        YakCoolAccessEndpoint(
+            id: "anthropic-base",
+            name: "Anthropic 基址",
+            url: "https://aibalance.yaklang.com"
+        ),
+        YakCoolAccessEndpoint(
+            id: "anthropic-messages",
+            name: "Anthropic Messages",
+            url: "https://aibalance.yaklang.com/v1/messages"
+        ),
+    ]
+
     @Published private(set) var phase: AuthenticationPhase = .signedOut
     @Published var preferredAuthenticationMode: AuthenticationMode = .account
     @Published private(set) var dashboard: DashboardResponse?
@@ -46,11 +80,14 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var clientMessages: [ClientID: String] = [:]
     @Published private(set) var clientStatuses: [ClientID: ClientConfigurationStatus] = [:]
     @Published private(set) var lastRefreshAt: Date?
+    @Published private(set) var installedClientIDs: Set<ClientID>
+    @Published private(set) var recentClientIDs: [ClientID]
 
     let environment: AppEnvironment
     private let api: YakCoolAPI
     private let credentials: CredentialRepository
     private let clients: ClientConfigurationRegistry
+    private let installationDetector: ClientInstallationDetecting
     private let isPreview: Bool
     private var selectedModelIDsByClient: [ClientID: String] = [:]
     private var webCookies: [StoredWebCookie] = []
@@ -62,6 +99,7 @@ final class YConnectStore: ObservableObject {
         credentialVault: CredentialVault? = nil,
         openCodeConfigurator: OpenCodeConfigurator? = nil,
         clientRegistry: ClientConfigurationRegistry? = nil,
+        installationDetector: ClientInstallationDetecting? = nil,
         preview: Bool = false
     ) {
         self.environment = environment
@@ -73,6 +111,11 @@ final class YConnectStore: ObservableObject {
             environment: environment,
             openCodeConfigurator: openCodeConfigurator
         ))
+        self.installationDetector = installationDetector
+            ?? (preview ? StaticClientInstallationDetector() : DefaultClientInstallationDetector())
+        let detectedClientIDs = self.installationDetector.installedClientIDs(from: clients.descriptors)
+        installedClientIDs = detectedClientIDs
+        recentClientIDs = preview ? [] : YConnectPreferences.recentClientIDs
 
         // Migrate the v0.1 OpenCode-only preference once, regardless of which
         // client happens to be selected when this Store starts.
@@ -82,9 +125,10 @@ final class YConnectStore: ObservableObject {
             YConnectPreferences.setSelectedModelID(legacyOpenCodeModel, for: .openCode)
         }
         let preferredClient = preview ? ClientID.openCode : YConnectPreferences.selectedClientID
-        selectedClientID = clients[preferredClient] == nil
-            ? (clients.descriptors.first?.id ?? .openCode)
-            : preferredClient
+        let firstInstalled = clients.descriptors.first(where: { detectedClientIDs.contains($0.id) })?.id
+        selectedClientID = clients[preferredClient] != nil && detectedClientIDs.contains(preferredClient)
+            ? preferredClient
+            : (firstInstalled ?? clients.descriptors.first?.id ?? .openCode)
         selectedAccountKeyID = preview ? nil : YConnectPreferences.selectedAccountKeyID
         selectedModelID = preview
             ? nil
@@ -101,7 +145,27 @@ final class YConnectStore: ObservableObject {
 
     var isAuthenticated: Bool { phase.isAuthenticated }
     var isAccountMode: Bool { phase == .account }
+    var hasTransientOperationMessage: Bool {
+        guard let operationMessage else { return false }
+        return operationMessage != "YakCool 账户已安全连接"
+            && operationMessage != "API Key 验证成功"
+    }
     var clientDescriptors: [ClientDescriptor] { clients.descriptors }
+    var installedClientDescriptors: [ClientDescriptor] {
+        let order = Dictionary(
+            recentClientIDs.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { min($0, $1) }
+        )
+        return clients.descriptors
+            .filter { installedClientIDs.contains($0.id) }
+            .sorted { lhs, rhs in
+                let left = order[lhs.id] ?? Int.max
+                let right = order[rhs.id] ?? Int.max
+                return left == right
+                    ? descriptorIndex(lhs.id) < descriptorIndex(rhs.id)
+                    : left < right
+            }
+    }
     var selectedClientDescriptor: ClientDescriptor {
         clients[selectedClientID]?.descriptor
             ?? ClientDescriptor(
@@ -120,6 +184,21 @@ final class YConnectStore: ObservableObject {
         clientMessages[selectedClientID] ?? "尚未写入 \(selectedClientDescriptor.name) 配置"
     }
     var openCodeMessage: String { clientMessages[.openCode] ?? "尚未写入 OpenCode 配置" }
+
+    func refreshInstalledClients() {
+        installedClientIDs = installationDetector.installedClientIDs(from: clients.descriptors)
+        recentClientIDs = recentClientIDs.filter(installedClientIDs.contains)
+        if !isPreview { YConnectPreferences.recentClientIDs = recentClientIDs }
+        if !installedClientIDs.contains(selectedClientID), let first = installedClientDescriptors.first {
+            selectedClientID = first.id
+        }
+    }
+
+    func selectClientForManagement(_ clientID: ClientID) {
+        guard installedClientIDs.contains(clientID), clients[clientID] != nil else { return }
+        selectedClientID = clientID
+        markClientUsed(clientID)
+    }
 
     var selectedClientCompatibleModels: [BusinessKeyModel] {
         guard let client = clients[selectedClientID] else { return [] }
@@ -324,6 +403,40 @@ final class YConnectStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func copyAuthenticationInfo() -> Bool {
+        guard let value = currentAPIKeyValue else {
+            errorMessage = "当前没有可复制的接入信息"
+            return false
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.authenticationInfo(apiKey: value), forType: .string)
+        operationMessage = "接入信息已复制，可按需选择协议"
+        return true
+    }
+
+    static func authenticationInfo(apiKey: String) -> String {
+        let endpoints = accessEndpoints
+            .map { "\($0.name): \($0.url)" }
+            .joined(separator: "\n")
+        return """
+        YConnect · YakCool 接入信息
+        由 YConnect 生成并复制。你可以根据自己的客户端和使用习惯，选择下面任一兼容协议接入。
+
+        API Key
+        \(apiKey)
+
+        协议接入地址
+        \(endpoints)
+
+        请求头
+        OpenAI 兼容协议 / Responses API: Authorization: Bearer
+        Anthropic Messages: x-api-key
+
+        安全提醒：API Key 可访问你的 YakCool 额度，请只分享给可信的人。
+        """
+    }
+
     func refreshConfigurationModels() async {
         guard !isPreview else {
             selectCompatibleModelIfNeeded()
@@ -352,6 +465,10 @@ final class YConnectStore: ObservableObject {
             return
         }
         let operationClientID = selectedClientID
+        guard installedClientIDs.contains(operationClientID) else {
+            errorMessage = "未检测到 \(selectedClientDescriptor.name)，无法应用配置"
+            return
+        }
         guard let client = clients[operationClientID] else {
             errorMessage = ClientConfigurationError.unsupportedClient(selectedClientDescriptor.name).localizedDescription
             return
@@ -390,6 +507,7 @@ final class YConnectStore: ObservableObject {
             clientMessages[operationClientID] = result.message
             operationMessage = result.message
             clientStatuses[operationClientID] = try? client.inspect()
+            markClientUsed(operationClientID)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -584,6 +702,16 @@ final class YConnectStore: ObservableObject {
         }
     }
 
+    private func descriptorIndex(_ clientID: ClientID) -> Int {
+        clients.descriptors.firstIndex(where: { $0.id == clientID }) ?? Int.max
+    }
+
+    private func markClientUsed(_ clientID: ClientID) {
+        recentClientIDs.removeAll(where: { $0 == clientID })
+        recentClientIDs.insert(clientID, at: 0)
+        if !isPreview { YConnectPreferences.recentClientIDs = recentClientIDs }
+    }
+
     private func selectCompatibleModelIfNeeded() {
         guard let client = clients[selectedClientID], !businessKeyModels.isEmpty else { return }
         let compatible = client.compatibleModels(from: businessKeyModels.map(Self.clientModelOption))
@@ -657,7 +785,12 @@ final class YConnectStore: ObservableObject {
         lastRefreshAt = nil
     }
 
-    static func preview(environment: AppEnvironment) -> YConnectStore {
+    static func preview(
+        environment: AppEnvironment,
+        authenticated: Bool = true,
+        installedClientIDs: Set<ClientID>? = nil,
+        operationMessage: String? = nil
+    ) -> YConnectStore {
         // Re-root even an accidentally supplied production environment. This
         // factory is used by render previews and must never share client files,
         // credentials, or backups with the running application.
@@ -672,8 +805,10 @@ final class YConnectStore: ObservableObject {
                 transport: PreviewOfflineHTTPTransport()
             ),
             credentialVault: MemoryCredentialVault(),
+            installationDetector: StaticClientInstallationDetector(installedClientIDs),
             preview: true
         )
+        guard authenticated else { return store }
         store.phase = .account
         store.dashboard = DashboardResponse(
             user: YakCoolUser(
@@ -725,6 +860,7 @@ final class YConnectStore: ObservableObject {
         store.selectedAccountKeyID = 11
         store.selectedModelID = "gpt-5"
         store.lastRefreshAt = Date()
+        store.operationMessage = operationMessage
         store.clientMessages[.openCode] = sandboxEnvironment.isDevelopment
             ? "开发预览使用隔离配置目录，不会修改真实 OpenCode 配置"
             : "将安全写入 \(sandboxEnvironment.openCodeConfigurationURL.path)"

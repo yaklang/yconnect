@@ -25,19 +25,29 @@ struct VisualEffect: NSViewRepresentable {
 
 enum WidgetMetrics {
     static let width: CGFloat = 390
+    static let cornerRadius: CGFloat = 18
+    static let collapsedBreathingRoom: CGFloat = 28
 
     @MainActor
-    static func height(for store: YConnectStore) -> CGFloat {
+    static func height(for store: YConnectStore, presentation: WidgetPresentationState? = nil) -> CGFloat {
         if store.phase == .restoring { return 250 }
-        if !store.isAuthenticated { return 430 }
-        let base: CGFloat = store.isAccountMode ? 395 : 360
-        return base + (store.operationMessage == nil ? 0 : 39)
+        if !store.isAuthenticated {
+            return store.preferredAuthenticationMode == .account ? 355 : 405
+        }
+        let clientSlots = min(store.installedClientDescriptors.count, 4)
+        let rows = max(1, Int(ceil(Double(clientSlots) / 2)))
+        let base: CGFloat = store.isAccountMode ? 430 : 410
+        let expandedURLs: CGFloat = presentation?.showsConnectionURLs == true ? 180 : 0
+        let breathingRoom = presentation?.showsConnectionURLs == true ? 0 : collapsedBreathingRoom
+        return base + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
+            + expandedURLs + breathingRoom
     }
 }
 
 @MainActor
 final class WidgetPresentationState: ObservableObject {
     @Published var isPinned = false
+    @Published var showsConnectionURLs = false
 }
 
 enum ManagerSection: String, CaseIterable, Identifiable {
@@ -71,7 +81,31 @@ enum ManagerSection: String, CaseIterable, Identifiable {
 @MainActor
 final class ManagerNavigation: ObservableObject {
     @Published var selection: ManagerSection? = .overview
+    @Published private(set) var apiKeyCreationRequestID = 0
+
     var selectedSection: ManagerSection { selection ?? .overview }
+
+    func requestAPIKeyCreation() {
+        selection = .apiKeys
+        apiKeyCreationRequestID &+= 1
+    }
+}
+
+enum APIKeyLabelSuggestion {
+    private static let prefix = "YConnect-"
+
+    static func next(existingLabels: [String]) -> String {
+        let usedNumbers = Set(existingLabels.compactMap { label -> Int? in
+            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix(prefix) else { return nil }
+            let suffix = trimmed.dropFirst(prefix.count)
+            guard let value = Int(suffix), value > 0 else { return nil }
+            return value
+        })
+        var candidate = existingLabels.count + 1
+        while usedNumbers.contains(candidate) { candidate += 1 }
+        return "\(prefix)\(candidate)"
+    }
 }
 
 struct SmallPrimaryButtonStyle: ButtonStyle {
@@ -140,8 +174,10 @@ struct WidgetView: View {
     @ObservedObject var presentation: WidgetPresentationState
     let beginAccountLogin: () -> Void
     let openManager: (ManagerSection) -> Void
+    let openAPIKeyCreation: () -> Void
     let closeWidget: () -> Void
     @State private var apiKey = ""
+    @State private var copiedEndpointID: String?
 
     var body: some View {
         ZStack {
@@ -156,9 +192,10 @@ struct WidgetView: View {
                 }
             }
             .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .frame(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store))
+        .frame(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store, presentation: presentation))
+        .clipShape(RoundedRectangle(cornerRadius: WidgetMetrics.cornerRadius, style: .continuous))
         .tint(Brand.accent)
         .alert("YConnect", isPresented: Binding(
             get: { store.errorMessage != nil },
@@ -234,10 +271,10 @@ struct WidgetView: View {
                 loginCard(
                     symbol: "qrcode.viewfinder",
                     title: "微信扫码登录",
-                    detail: "打开 YakCool 官方登录页。登录成功后，用户会话加密保存在 macOS 钥匙串。"
+                    detail: "在 YConnect 原生登录窗口内展示 YakCool 官方扫码页；登录成功后，会话加密保存在 macOS 钥匙串。"
                 ) {
                     Button(action: beginAccountLogin) {
-                        Label("打开扫码登录", systemImage: "arrow.up.right.square")
+                        Label("在 YConnect 内扫码", systemImage: "qrcode.viewfinder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SmallPrimaryButtonStyle())
@@ -248,9 +285,15 @@ struct WidgetView: View {
                     title: "使用 API Key",
                     detail: "仅查询这把 Key 的状态、近似额度和可用模型；不会获得账户管理权限。"
                 ) {
-                    SecureField("粘贴 YakCool API Key", text: $apiKey)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { connectAPIKey() }
+                    HStack(spacing: 7) {
+                        SecureField("粘贴 YakCool API Key", text: $apiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.large)
+                            .frame(height: 30)
+                            .onSubmit { connectAPIKey() }
+                        Button("粘贴") { pasteAPIKey(into: &apiKey) }
+                            .buttonStyle(SmallSecondaryButtonStyle())
+                    }
                     Button(action: connectAPIKey) {
                         if store.isBusy { ProgressView().controlSize(.small) }
                         else { Label("验证并连接", systemImage: "checkmark.shield") }
@@ -287,25 +330,19 @@ struct WidgetView: View {
 
     private var authenticated: some View {
         VStack(spacing: 9) {
+            connectionStatusBanner
             accountSummaryCard
             keySelectionCard
-            HStack(spacing: 6) {
-                Button { store.copyCurrentAPIKey() } label: {
-                    Label("复制 API Key", systemImage: "doc.on.doc")
-                }
-                .frame(maxWidth: .infinity)
-                .buttonStyle(SmallSecondaryButtonStyle())
-
-                Button { Task { await store.applySelectedClientConfiguration() } } label: {
-                    if store.isBusy { ProgressView().controlSize(.small) }
-                    else { Label("应用到 \(store.selectedClientDescriptor.shortName)", systemImage: store.selectedClientDescriptor.symbol) }
-                }
-                .frame(maxWidth: .infinity)
-                .buttonStyle(SmallPrimaryButtonStyle())
-                .disabled(store.isBusy)
+            Button { store.copyAuthenticationInfo() } label: {
+                Label("复制接入信息", systemImage: "doc.on.doc.fill")
             }
+            .frame(maxWidth: .infinity)
+            .buttonStyle(SmallPrimaryButtonStyle())
+            .help("复制全部协议 URL 与 API Key，便于分享接入")
 
-            if let message = store.operationMessage {
+            quickClientActions
+
+            if store.hasTransientOperationMessage, let message = store.operationMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.green)
                     Text(message).lineLimit(2)
@@ -347,6 +384,67 @@ struct WidgetView: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .onAppear { store.refreshInstalledClients() }
+    }
+
+    private var connectionStatusBanner: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "checkmark.shield.fill").foregroundStyle(Brand.green)
+            Text(store.isAccountMode ? "YakCool 账户已安全连接" : "API Key 已验证并安全连接")
+            Spacer()
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(Brand.green.opacity(0.09))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.green.opacity(0.16)))
+    }
+
+    private var quickClientActions: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("已安装客户端").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Text("按最近使用排序").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+            }
+            if store.installedClientDescriptors.isEmpty {
+                Button { openManager(.clients) } label: {
+                    HStack {
+                        Label("未检测到可配置客户端", systemImage: "magnifyingglass")
+                        Spacer()
+                        Text("打开操作台").foregroundStyle(Brand.accent)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 8))
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                    ForEach(Array(store.installedClientDescriptors.prefix(store.installedClientDescriptors.count > 4 ? 3 : 4))) { client in
+                        Button {
+                            store.selectClientForManagement(client.id)
+                            openManager(.clients)
+                        } label: {
+                            Label("应用到 \(client.shortName)", systemImage: client.symbol)
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .help("打开 \(client.name) 配置页")
+                    }
+                    if store.installedClientDescriptors.count > 4 {
+                        Button { openManager(.clients) } label: {
+                            Label("更多", systemImage: "ellipsis.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                    }
+                }
+            }
+        }
     }
 
     private var accountSummaryCard: some View {
@@ -380,44 +478,114 @@ struct WidgetView: View {
 
     private var keySelectionCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 8) {
                 Label("当前连接", systemImage: "key.horizontal.fill")
                     .font(.system(size: 11.5, weight: .semibold))
                 Spacer()
-                Text(store.isAccountMode ? (store.selectedAccountKey?.maskedKey ?? "无可用 Key") : "•••• •••• •••• \(store.businessKeyInfo?.key.last4 ?? "----")")
-                    .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+                if store.isAccountMode {
+                    Button(action: openAPIKeyCreation) {
+                        Label("新增 API Key", systemImage: "plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 6)
+                            .frame(height: 22)
+                    }
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                    .foregroundStyle(Brand.accent)
+                    .help("前往 API Keys 管理页创建新 Key")
+                }
             }
             if store.isAccountMode, !store.accountKeys.isEmpty {
-                Picker("API Key", selection: $store.selectedAccountKeyID) {
-                    ForEach(store.accountKeys) { key in
-                        Text("\(key.label) · ••••\(key.last4)").tag(Optional(key.id))
+                HStack(spacing: 7) {
+                    Picker("API Key", selection: $store.selectedAccountKeyID) {
+                        ForEach(store.accountKeys) { key in
+                            Text("\(key.label) · ••••\(key.last4)").tag(Optional(key.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    copyKeyButton
+                }
+            } else {
+                HStack(spacing: 7) {
+                    Text("•••• •••• •••• \(store.businessKeyInfo?.key.last4 ?? "----")")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    copyKeyButton
+                }
+                .frame(height: 30)
+            }
+
+            Divider()
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    presentation.showsConnectionURLs.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Label("协议接入地址", systemImage: "point.3.connected.trianglepath.dotted")
+                    Spacer()
+                    Text(presentation.showsConnectionURLs ? "收起" : "展开")
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(presentation.showsConnectionURLs ? 90 : 0))
+                }
+                .font(.system(size: 10.5, weight: .medium))
+                .frame(height: 22)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+
+            if presentation.showsConnectionURLs {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(YConnectStore.accessEndpoints) { endpoint in
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(endpoint.name)
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button {
+                                    copyAccessEndpoint(endpoint)
+                                } label: {
+                                    Label(
+                                        copiedEndpointID == endpoint.id ? "已复制" : "复制",
+                                        systemImage: copiedEndpointID == endpoint.id ? "checkmark" : "doc.on.doc"
+                                    )
+                                    .font(.system(size: 9, weight: .medium))
+                                    .padding(.horizontal, 6)
+                                    .frame(height: 18)
+                                }
+                                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 5))
+                                .foregroundStyle(copiedEndpointID == endpoint.id ? Brand.green : Brand.accent)
+                                .help("复制 \(endpoint.name) URL")
+                            }
+                            Text(endpoint.url)
+                                .font(.system(size: 8.5, design: .monospaced))
+                                .foregroundStyle(.primary.opacity(0.84))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 27, alignment: .leading)
+                        .help(endpoint.url)
                     }
                 }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
             }
-            HStack(spacing: 7) {
-                Image(systemName: store.selectedClientDescriptor.symbol)
-                Text("目标客户端")
-                Spacer()
-                Picker("目标客户端", selection: $store.selectedClientID) {
-                    ForEach(store.clientDescriptors) { client in
-                        Text(client.shortName).tag(client.id)
-                    }
-                }
-                .labelsHidden()
-                .fixedSize()
-            }
-            .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
-            HStack {
-                Image(systemName: "cube")
-                Text("兼容模型")
-                Spacer()
-                Text(store.selectedModelName).lineLimit(1)
-            }
-            .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
         }
         .cardStyle()
+    }
+
+    private var copyKeyButton: some View {
+        Button { store.copyCurrentAPIKey() } label: {
+            Label("复制 Key", systemImage: "doc.on.doc")
+        }
+        .buttonStyle(SmallSecondaryButtonStyle())
+        .help("复制完整 API Key")
     }
 
     private func loginCard<Content: View>(
@@ -462,6 +630,21 @@ struct WidgetView: View {
         apiKey = ""
         Task { await store.signIn(apiKey: value) }
     }
+
+    private func pasteAPIKey(into value: inout String) {
+        value = NSPasteboard.general.string(forType: .string) ?? ""
+    }
+
+    private func copyAccessEndpoint(_ endpoint: YakCoolAccessEndpoint) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(endpoint.url, forType: .string)
+        copiedEndpointID = endpoint.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if copiedEndpointID == endpoint.id {
+                copiedEndpointID = nil
+            }
+        }
+    }
 }
 
 struct ManagerView: View {
@@ -471,10 +654,12 @@ struct ManagerView: View {
     let beginAccountLogin: () -> Void
     let setEdgeDockEnabled: (Bool) -> Void
     @State private var standaloneKey = ""
-    @State private var newKeyLabel = "YConnect"
+    @State private var newKeyLabel = ""
+    @State private var handledAPIKeyCreationRequestID = 0
     @State private var redeemCode = ""
     @State private var pendingDelete: APIKeyRecord?
     @State private var confirmLiveTest = false
+    @FocusState private var newKeyLabelFocused: Bool
 
     var body: some View {
         NavigationSplitView {
@@ -509,6 +694,18 @@ struct ManagerView: View {
         }
         .frame(minWidth: 940, minHeight: 640)
         .tint(Brand.accent)
+        .onAppear {
+            if newKeyLabel.isEmpty {
+                newKeyLabel = APIKeyLabelSuggestion.next(existingLabels: store.accountKeys.map(\.label))
+            }
+        }
+        .task(id: navigation.apiKeyCreationRequestID) {
+            guard navigation.apiKeyCreationRequestID > handledAPIKeyCreationRequestID else { return }
+            handledAPIKeyCreationRequestID = navigation.apiKeyCreationRequestID
+            newKeyLabel = APIKeyLabelSuggestion.next(existingLabels: store.accountKeys.map(\.label))
+            await Task.yield()
+            newKeyLabelFocused = true
+        }
         .alert("YConnect", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
@@ -578,11 +775,17 @@ struct ManagerView: View {
                     Label("API Key", systemImage: "key.horizontal").font(.system(size: 15, weight: .semibold))
                     Text("只查看当前 Key 的额度与模型，不授予账户管理权限。")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
-                    SecureField("粘贴 API Key", text: $standaloneKey).textFieldStyle(.roundedBorder)
+                    HStack(spacing: 8) {
+                        SecureField("粘贴 API Key", text: $standaloneKey)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { connectStandaloneKey() }
+                        Button("粘贴") {
+                            standaloneKey = NSPasteboard.general.string(forType: .string) ?? ""
+                        }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                    }
                     Button("验证并连接") {
-                        let value = standaloneKey
-                        standaloneKey = ""
-                        Task { await store.signIn(apiKey: value) }
+                        connectStandaloneKey()
                     }
                     .buttonStyle(SmallPrimaryButtonStyle())
                     .disabled(store.isBusy || standaloneKey.isEmpty)
@@ -604,7 +807,10 @@ struct ManagerView: View {
             Label(title, systemImage: symbol).font(.system(size: 15, weight: .semibold))
             Text(description).font(.system(size: 12)).foregroundStyle(.secondary)
             Spacer()
-            Button("打开扫码登录", action: action).buttonStyle(SmallPrimaryButtonStyle())
+            Button(action: action) {
+                Label("在 YConnect 内扫码", systemImage: "qrcode.viewfinder")
+            }
+            .buttonStyle(SmallPrimaryButtonStyle())
         }
         .padding(18).frame(maxWidth: .infinity, minHeight: 175, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
@@ -658,8 +864,11 @@ struct ManagerView: View {
         if store.isAccountMode {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    TextField("新 Key 名称", text: $newKeyLabel).textFieldStyle(.roundedBorder).frame(maxWidth: 300)
-                    Button { Task { _ = await store.createAPIKey(label: newKeyLabel) } } label: {
+                    TextField("新 Key 名称", text: $newKeyLabel)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($newKeyLabelFocused)
+                        .frame(maxWidth: 300)
+                    Button(action: createNamedAPIKey) {
                         Label("创建 API Key", systemImage: "plus")
                     }
                     .buttonStyle(SmallPrimaryButtonStyle())
@@ -681,7 +890,9 @@ struct ManagerView: View {
                         }
                         Spacer()
                         StatusBadge(title: info.key.status, good: info.key.status == "enabled")
-                        Button { store.copyCurrentAPIKey() } label: { Label("复制", systemImage: "doc.on.doc") }
+                        Button { store.copyAuthenticationInfo() } label: { Label("复制接入信息", systemImage: "doc.on.doc.fill") }
+                            .buttonStyle(SmallPrimaryButtonStyle())
+                        Button { store.copyCurrentAPIKey() } label: { Label("复制 Key", systemImage: "key.horizontal") }
                             .buttonStyle(SmallSecondaryButtonStyle())
                     }
                     .padding(18).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
@@ -711,8 +922,14 @@ struct ManagerView: View {
             Spacer()
             Button {
                 store.selectedAccountKeyID = key.id
+                store.copyAuthenticationInfo()
+            } label: { Image(systemName: "doc.on.doc.fill").frame(width: 28, height: 28) }
+                .buttonStyle(PlainHoverButtonStyle())
+                .help("复制全部协议 URL 与 API Key")
+            Button {
+                store.selectedAccountKeyID = key.id
                 store.copyCurrentAPIKey()
-            } label: { Image(systemName: "doc.on.doc").frame(width: 28, height: 28) }
+            } label: { Image(systemName: "key.horizontal").frame(width: 28, height: 28) }
                 .buttonStyle(PlainHoverButtonStyle())
                 .help("复制完整 API Key")
             Button { pendingDelete = key } label: {
@@ -738,9 +955,23 @@ struct ManagerView: View {
             }
             .padding(18).background(Brand.accent.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 10)], spacing: 10) {
-                ForEach(store.clientDescriptors) { client in
-                    Button { store.selectedClientID = client.id } label: {
+            HStack {
+                Label("已检测到 \(store.installedClientDescriptors.count) 个可配置客户端", systemImage: "checkmark.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(store.installedClientDescriptors.isEmpty ? Color.secondary : Brand.green)
+                Spacer()
+                Button { store.refreshInstalledClients() } label: {
+                    Label("重新检测", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(SmallSecondaryButtonStyle())
+            }
+
+            if store.installedClientDescriptors.isEmpty {
+                emptyState("没有检测到已安装的受支持客户端", symbol: "macwindow.badge.plus")
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 10)], spacing: 10) {
+                    ForEach(store.installedClientDescriptors) { client in
+                    Button { store.selectClientForManagement(client.id) } label: {
                         VStack(alignment: .leading, spacing: 7) {
                             HStack {
                                 Image(systemName: client.symbol).font(.system(size: 16, weight: .semibold))
@@ -759,44 +990,12 @@ struct ManagerView: View {
                     .background(client.id == store.selectedClientID ? Brand.accent.opacity(0.10) : Color(nsColor: .controlBackgroundColor))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(client.id == store.selectedClientID ? Brand.accent.opacity(0.55) : Color.primary.opacity(0.08)))
-                }
-            }
-
-            GroupBox("CC-Switch 客户端范围核对") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("已按 CC-Switch 源码核对 9 个独立客户端类型。YConnect 本版提供 8 个正式适配器；Gemini CLI 因协议不同单独标记，不会把认证模式或 OpenCode 插件重复计数。")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 8)], spacing: 8) {
-                        ForEach(ClientSupportCatalog.ccSwitchScope) { item in
-                            HStack(spacing: 7) {
-                                Image(systemName: item.statusSymbol)
-                                    .foregroundStyle(item.availability == .ready ? Brand.accent : Color.secondary)
-                                Text(item.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text(item.statusTitle)
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundStyle(item.availability == .ready ? Brand.accent : Color.secondary)
-                            }
-                            .help(item.note)
-                            .padding(.horizontal, 9)
-                            .frame(height: 34)
-                            .background(Color.primary.opacity(0.035))
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.065)))
-                        }
                     }
-                    Text("Gemini CLI 使用 Gemini-native generateContent，当前必须有本地协议桥才能安全连接 YakCool，因此不会显示成可应用状态。")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
             }
 
-            GroupBox("配置 \(store.selectedClientDescriptor.name)") {
+            if store.installedClientIDs.contains(store.selectedClientID) {
+                GroupBox("配置 \(store.selectedClientDescriptor.name)") {
                 VStack(alignment: .leading, spacing: 12) {
                     LabeledContent("配置文件") {
                         Text(store.selectedClientDescriptor.configurationPath)
@@ -818,27 +1017,29 @@ struct ManagerView: View {
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 .padding(.top, 8)
-            }
+                }
 
-            HStack(spacing: 10) {
-                Button { Task { await store.applySelectedClientConfiguration() } } label: {
-                    Label("备份并应用到 \(store.selectedClientDescriptor.shortName)", systemImage: "arrow.triangle.2.circlepath")
+                HStack(spacing: 10) {
+                    Button { Task { await store.applySelectedClientConfiguration() } } label: {
+                        Label("备份并应用到 \(store.selectedClientDescriptor.shortName)", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(SmallPrimaryButtonStyle())
+                    .disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty)
+                    Button { store.restoreSelectedClientConfiguration() } label: {
+                        Label("恢复最近备份", systemImage: "clock.arrow.circlepath")
+                    }
+                    .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
+                    Button { Task { await store.refreshConfigurationModels() } } label: {
+                        Label("刷新兼容模型", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
                 }
-                .buttonStyle(SmallPrimaryButtonStyle())
-                .disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty)
-                Button { store.restoreSelectedClientConfiguration() } label: {
-                    Label("恢复最近备份", systemImage: "clock.arrow.circlepath")
-                }
-                .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
-                Button { Task { await store.refreshConfigurationModels() } } label: {
-                    Label("刷新兼容模型", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
+                Text(store.selectedClientMessage).font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            Text(store.selectedClientMessage).font(.system(size: 12)).foregroundStyle(.secondary)
             securityNote
         }
         .task(id: "\(store.selectedClientID.rawValue)-\(store.selectedAccountKeyID ?? 0)-\(store.phase)") {
+            store.refreshInstalledClients()
             await store.refreshConfigurationModels()
         }
     }
@@ -983,11 +1184,26 @@ struct ManagerView: View {
         }.font(.system(size: 12))
     }
 
+    private func connectStandaloneKey() {
+        let value = standaloneKey
+        standaloneKey = ""
+        Task { await store.signIn(apiKey: value) }
+    }
+
+    private func createNamedAPIKey() {
+        let label = newKeyLabel
+        Task { @MainActor in
+            guard await store.createAPIKey(label: label) else { return }
+            newKeyLabel = APIKeyLabelSuggestion.next(existingLabels: store.accountKeys.map(\.label))
+            newKeyLabelFocused = true
+        }
+    }
+
     private var pageSubtitle: String {
         switch navigation.selectedSection {
         case .overview: return "查看 YakCool 账户状态、额度与使用概况"
         case .apiKeys: return "安全创建、选择、复制和删除 API Key"
-        case .clients: return "按原生协议配置 8 类客户端；Gemini CLI 单独处理协议桥"
+        case .clients: return "自动检测并只展示本机已安装、可安全配置的客户端"
         case .diagnostics: return "分层验证服务、权限、模型和实际调用"
         case .settings: return "管理常驻体验与本地安全设置"
         }

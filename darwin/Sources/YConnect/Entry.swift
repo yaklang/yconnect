@@ -48,14 +48,31 @@ enum YConnectMain {
         application.finishLaunching()
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-preview-\(UUID().uuidString)", isDirectory: true)
         let environment = AppEnvironment.preview(at: scratch)
-        let store = YConnectStore.preview(environment: environment)
+        let installedClientIDs = detectedClientIDsForPreview(environment: environment)
+        let store = YConnectStore.preview(
+            environment: environment,
+            authenticated: !CommandLine.arguments.contains("--signed-out"),
+            installedClientIDs: installedClientIDs,
+            operationMessage: CommandLine.arguments.contains("--with-operation-message")
+                ? "“YConnect-4”已删除"
+                : nil
+        )
+        if CommandLine.arguments.contains("--api-key-mode") {
+            store.preferredAuthenticationMode = .apiKey
+        }
+        let presentation = WidgetPresentationState()
+        presentation.showsConnectionURLs = CommandLine.arguments.contains("--expanded-urls")
         let view = WidgetView(
             store: store,
-            presentation: WidgetPresentationState(),
-            beginAccountLogin: {}, openManager: { _ in }, closeWidget: {}
+            presentation: presentation,
+            beginAccountLogin: {}, openManager: { _ in }, openAPIKeyCreation: {}, closeWidget: {}
         )
         do {
-            try render(view: view, size: NSSize(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store)), output: output)
+            try render(
+                view: view,
+                size: NSSize(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store, presentation: presentation)),
+                output: output
+            )
             print("widget rendered: \(output)")
         } catch {
             fputs("widget render failed: \(error.localizedDescription)\n", stderr)
@@ -68,7 +85,11 @@ enum YConnectMain {
         application.setActivationPolicy(.prohibited)
         application.finishLaunching()
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-preview-\(UUID().uuidString)", isDirectory: true)
-        let store = YConnectStore.preview(environment: .preview(at: scratch))
+        let environment = AppEnvironment.preview(at: scratch)
+        let store = YConnectStore.preview(
+            environment: environment,
+            installedClientIDs: detectedClientIDsForPreview(environment: environment)
+        )
         if let clientName = argument(after: "--client") {
             let requested = ClientID(rawValue: clientName)
             if store.clientDescriptors.contains(where: { $0.id == requested }) {
@@ -92,6 +113,13 @@ enum YConnectMain {
             fputs("manager render failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    @MainActor
+    private static func detectedClientIDsForPreview(environment: AppEnvironment) -> Set<ClientID>? {
+        guard CommandLine.arguments.contains("--detect-installed") else { return nil }
+        guard let registry = try? DefaultClientConfigurationRegistry.make(environment: environment) else { return [] }
+        return DefaultClientInstallationDetector().installedClientIDs(from: registry.descriptors)
     }
 
     @MainActor
