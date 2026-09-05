@@ -4,6 +4,8 @@
 原生界面、托盘、窗口定位、凭证保护和启动项改用 WPF / Win32 / DPAPI / HKCU Run。
 当前原生目标为 Windows x64，不把 WPF 描述为跨平台 UI；平台无关协议与配置逻辑集中于 `YConnect/Core`。
 
+> Windows UI 变更前必须对照 [YConnect macOS 交互基线与 Windows 适配规范](../docs/macos-ux-reference-for-windows.md)。平台控件可以不同，但信息层级、文案语义、默认启动行为、已安装客户端过滤、复制路径和安全确认不得漂移。
+
 ## 本地关联仓库
 
 | 本地目录 | 来源 | 本次参考提交 |
