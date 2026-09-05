@@ -19,7 +19,7 @@ namespace YConnect.Validation
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
         // Captures only this application's HWND, over a controlled opaque WPF
         // backdrop. It validates DWM/layered-window alpha, not just a visual tree.
-        public static async Task Save(Window window, string path, bool darkBackdrop = false)
+        public static async Task Save(Window window, string path, bool darkBackdrop = false, bool activate = true)
         {
             window.Show(); window.UpdateLayout(); var handle = new WindowInteropHelper(window).Handle;
             if (!GetWindowRect(handle, out var bounds)) throw new InvalidOperationException("Native window bounds unavailable");
@@ -29,12 +29,12 @@ namespace YConnect.Validation
             try
             {
                 backdrop.Show(); WindowsDesktop.Move(backdrop, bounds.Left - 16, bounds.Top - 16); window.Topmost = true;
-                SetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10); window.Activate(); await Task.Delay(350);
+                SetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10); if (activate) window.Activate(); await Task.Delay(350);
                 using (var bitmap = new Drawing.Bitmap(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top))
                 using (var graphics = Drawing.Graphics.FromImage(bitmap))
                 {
                     graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bitmap.Size, Drawing.CopyPixelOperation.SourceCopy);
-                    var samples = new[] { bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 4).ToArgb(), bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2).ToArgb(), bitmap.GetPixel(bitmap.Width / 2, bitmap.Height * 3 / 4).ToArgb(), bitmap.GetPixel(bitmap.Width / 4, bitmap.Height / 2).ToArgb() };
+                    var samples = Enumerable.Range(0, 9).SelectMany(x => Enumerable.Range(0, 9).Select(y => bitmap.GetPixel(x * (bitmap.Width - 1) / 8, y * (bitmap.Height - 1) / 8).ToArgb()));
                     if (System.Linq.Enumerable.Distinct(samples).Count() == 1) throw new InvalidOperationException("Native capture was occluded or empty; retry on the unlocked desktop");
                     bitmap.Save(path, Drawing.Imaging.ImageFormat.Png);
                 }

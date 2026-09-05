@@ -36,6 +36,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         root = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "YConnectTests-" + Guid.NewGuid().ToString("N"))); Directory.CreateDirectory(root);
+        Test("Headless WPF layout, capability parity and responsive snapshots", () => LayoutChecks.Run(Path.Combine(root, "layout")));
         Run().GetAwaiter().GetResult(); File.WriteAllLines(Path.Combine(root, "results.txt"), results.Concat(new[] { passed + " passed, " + failed + " failed" })); Console.WriteLine(passed + " passed, " + failed + " failed"); return failed == 0 ? 0 : 1;
     }
     private static async Task Run()
@@ -159,6 +160,82 @@ internal static class Program
                         var work = new System.Drawing.Rectangle(-1920, -100, 1920, 1080); var edge = WindowsDesktop.EdgeBounds(work, scale, left, percent); var widget = WindowsDesktop.WidgetBounds(work, edge, scale, left, 408, 900);
                         Assert(work.Contains(edge) && work.Contains(widget), "window escaped working area");
                     }
+        });
+        Test("Installed client filtering and stable recent ordering", () =>
+        {
+            var env = Env("installed"); var clients = new ClientRegistry(env); var ids = ClientRegistry.All.Where(c => !c.Bridge).Select(c => c.Id).ToArray();
+            foreach (var count in new[] { 0, 1, 3, 4, 5, 8 })
+            {
+                env.SetPreviewClients(ids.Take(count).ToArray());
+                Assert(clients.InstalledClients(new[] { ids.Last(), ids.First() }).Length == count, "uninstalled client leaked");
+            }
+            env.SetPreviewClients(ids.Take(5).ToArray());
+            var ordered = clients.InstalledClients(new[] { ids[3], ids[1], ids[7] }).Select(c => c.Id).ToArray();
+            Assert(ordered.SequenceEqual(new[] { ids[3], ids[1], ids[0], ids[2], ids[4] }), "recent ordering is unstable");
+            var isolated = new EnvironmentPaths(true, false, Path.Combine(root, "config-is-not-installed"));
+            SecureFiles.WriteText(isolated.HomePath(".yconnect-nonexistent-test-client", "config.json"), "{}");
+            Assert(!ClientDetection.Installed(isolated, "yconnect-nonexistent-test-client"), "configuration alone was treated as installation");
+        });
+        Test("Startup defaults, explicit off, legacy migration and retry", () =>
+        {
+            var registry = false; var writes = 0; var saves = 0; var prefs = new Preferences();
+            Action<bool> write = value => { registry = value; writes++; };
+            StartupPolicy.Initialize(false, false, prefs, () => registry, write, () => saves++);
+            Assert(registry && prefs.StartupChoice == true && writes == 1 && saves == 1, "new install did not enable startup");
+            prefs.StartupChoice = false; registry = false;
+            StartupPolicy.Initialize(false, false, prefs, () => registry, write, () => saves++);
+            Assert(!registry && writes == 1, "explicit off was overwritten");
+            var legacy = new Preferences();
+            StartupPolicy.Initialize(false, true, legacy, () => false, write, () => saves++);
+            Assert(legacy.StartupChoice == false && writes == 1, "legacy off was lost");
+            var isolated = new Preferences();
+            StartupPolicy.Initialize(true, false, isolated, () => registry, write, () => saves++);
+            Assert(isolated.StartupChoice == null && writes == 1, "preview touched startup");
+            var retry = new Preferences();
+            Throws(() => StartupPolicy.Initialize(false, false, retry, () => false, value => { throw new IOException("denied"); }, () => saves++));
+            Assert(retry.StartupChoice == null, "failed startup was marked done");
+            StartupPolicy.Initialize(false, false, retry, () => registry, write, () => saves++);
+            Assert(retry.StartupChoice == true && registry, "startup retry failed");
+        });
+        Test("Native drag excludes inputs, selectors and buttons", () =>
+        {
+            Assert(!DragSurface.IsInteractive(new System.Windows.Controls.TextBlock { Text = "Balance" }), "card text cannot drag");
+            Assert(!DragSurface.IsInteractive(new System.Windows.Controls.Border()), "blank card cannot drag");
+            foreach (var control in new System.Windows.DependencyObject[] { new System.Windows.Controls.Button(), new System.Windows.Controls.TextBox(), new System.Windows.Controls.PasswordBox(), new System.Windows.Controls.ComboBox(), new System.Windows.Controls.CheckBox(), new System.Windows.Controls.Primitives.Thumb() })
+                Assert(DragSurface.IsInteractive(control), "interactive control became a drag surface");
+        });
+        Test("Proximity geometry includes corners and negative monitor coordinates", () =>
+        {
+            var bounds = new System.Drawing.Rectangle(-1920, 500, 30, 112);
+            Assert(WindowsDesktop.Distance(bounds, new System.Drawing.Point(-1910, 540)) == 0, "inside distance");
+            Assert(Math.Abs(WindowsDesktop.Distance(bounds, new System.Drawing.Point(-1860, 652)) - 50) < .01, "corner distance");
+        });
+        await TestAsync("Balance presentation preserves account/key privacy and unknown states", async () =>
+        {
+            var store = new YConnectStore(Env("balance"), new DemoApi());
+            Assert(BalancePresentation.From(store).Value == "尚未连接", "signed out value");
+            await store.LoginAccount("demo-public-session-only");
+            var exact = BalancePresentation.From(store); Assert(exact.Value == "¥128.60" && exact.Percent > 85 && exact.Percent < 86 && !exact.Stale, "account amount/percent");
+            Assert(BalancePresentation.From(store, true).Value == "约 86%", "privacy amount leaked");
+            ((JObject)store.Dashboard["ai_service_credit"]).Remove("token_limit");
+            Assert(BalancePresentation.From(store, true).Value == "暂不可用", "missing limit fabricated percentage");
+            await store.LoginKey(DemoApi.Key); var shared = BalancePresentation.From(store);
+            Assert(shared.Value == "约 80%" && !shared.Value.Contains("¥"), "shared key leaked exact account balance");
+            store.KeyInfo["quota"] = new JObject { ["follows_account"] = false, ["remaining_rmb"] = 12.34, ["used_percent_approx"] = 40 };
+            Assert(BalancePresentation.From(store).Value == "¥12.34" && BalancePresentation.From(store).Percent == 60, "independent key quota");
+            store.KeyInfo["quota"] = new JObject { ["follows_account"] = true };
+            Assert(BalancePresentation.From(store).Value == "暂不可用" && BalancePresentation.From(store).Percent == null, "unknown key quota fabricated");
+        });
+        await TestAsync("Key suggestions fill naming gaps and models remain authorized", async () =>
+        {
+            var store = new YConnectStore(Env("suggestions"), new DemoApi()); await store.LoginAccount("demo-public-session-only");
+            Assert(store.SuggestedKeyName() == "YConnect-1", "first suggestion");
+            store.Keys.Add(new JObject { ["label"] = "YConnect-1" }); store.Keys.Add(new JObject { ["label"] = "yconnect-3" });
+            Assert(store.SuggestedKeyName() == "YConnect-2", "first unused name");
+            store.RememberModel("gpt-5.4"); Assert(store.FrequentModels.First().Id == "gpt-5.4" && store.Preferences.CurrentModel == "gpt-5.4", "recent selection");
+            Throws(() => store.RememberModel("unavailable-model"));
+            store.Preferences.CurrentModel = "unavailable-model"; await store.LoginKey(DemoApi.Key);
+            Assert(store.Models.Any(m => m.Id == store.Preferences.CurrentModel), "stale model carried into key mode");
         });
         await TestAsync("Account and key state, revocation boundaries, model discovery", async () =>
         {

@@ -2,9 +2,10 @@ name: macOS
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -99,7 +100,34 @@ jobs:
           mounted_app="$mount_dir/YConnectDev.app"
           test -x "$mounted_app/Contents/MacOS/YConnect"
           codesign --verify --deep --strict "$mounted_app"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mounted_app/Contents/Info.plist)" = "io.yaklang.yconnect.dev"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mounted_app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
+
+      - name: Package universal production app
+        run: ./script/package-macos.sh --arch universal --dmg
+
+      - name: Verify universal release DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          dmg="dist/YConnect-$version-darwin-universal.dmg"
+          hdiutil verify "$dmg"
+          mount_dir="$(mktemp -d)"
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          app="$mount_dir/YConnect.app"
+          codesign --verify --deep --strict "$app"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/YConnect"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          test -L "$mount_dir/Applications"
+
+      - name: Upload macOS release payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/YConnect-*-darwin-universal.dmg
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
