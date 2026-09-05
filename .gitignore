@@ -18,3 +18,11 @@ dist/
 # Local test and render output
 .tmp/
 docs/images/generated/
+
+# Local companion repositories and Windows build artifacts
+related/
+windows/artifacts/
+windows/.test-output/
+windows/**/bin/
+windows/**/obj/
+windows/Assets/*.ico

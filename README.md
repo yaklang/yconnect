@@ -1,8 +1,14 @@
 # YConnect
 
-YConnect 是 YakCool 的原生 macOS 客户端，也是一个面向 AI 编程工具的本地端点适配中心。它常驻菜单栏并提供与 YTray 一致的屏幕边缘小组件，用于查看账户或 API Key 状态、管理 Key、执行基础连接测试，以及把不同本地客户端安全切换到 YakCool。
+YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工具的本地端点适配中心。macOS 使用 Swift/AppKit，Windows 使用 C#/WPF。它常驻菜单栏或系统托盘并提供与 YTray 一致的屏幕边缘小组件，用于查看账户或 API Key 状态、管理 Key、执行基础连接测试，以及把不同本地客户端安全切换到 YakCool。
 
-> 当前版本：0.2.0 · 支持 macOS 14 及以上
+> 当前版本：0.2.0 · macOS 14+；新增 Windows 10/11 x64 原生移植版
+
+## Windows 原生版
+
+使用系统 .NET Framework 4.8，无 Electron，无打包浏览器；仅扫码登录按需使用系统 WebView2。
+运行 `./windows/build.ps1 -Test -Smoke -Package -Run` 构建、验证并启动。
+Windows 路径、权限保护、登录与验证边界见 [Windows 说明](windows/README.md)；下方原有平台路径与 Keychain 说明针对 macOS。
 
 ## 核心体验
 

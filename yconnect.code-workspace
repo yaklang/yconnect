@@ -1,0 +1,8 @@
+{
+  "folders": [
+    { "name": "yconnect", "path": "." },
+    { "name": "ytray", "path": "related/ytray" },
+    { "name": "yakcool.com", "path": "related/yakcool.com" },
+    { "name": "aibalance-server", "path": "related/aibalance-server" }
+  ]
+}

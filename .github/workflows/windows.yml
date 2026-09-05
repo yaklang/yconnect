@@ -1,0 +1,31 @@
+name: Windows native
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build, test and package native WPF app
+        shell: pwsh
+        run: ./windows/build.ps1 -Test -Package
+      - name: Upload portable build and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: YConnect-windows-x64
+          path: |
+            windows/artifacts/*.zip
+            windows/.test-output/**/results.txt
