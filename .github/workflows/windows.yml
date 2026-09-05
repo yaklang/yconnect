@@ -4,6 +4,7 @@ on:
     branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -20,7 +21,28 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Build, test and package native WPF app
         shell: pwsh
-        run: ./windows/build.ps1 -Test -Package
+        run: ./windows/build.ps1 -Test -Package -Installer
+      - name: Verify installer and uninstaller in the disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = @(Get-ChildItem windows/artifacts/release/*-setup.exe)
+          if ($setup.Count -ne 1) { throw 'Expected exactly one installer' }
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'YConnect-install-check'
+          $install = Start-Process -FilePath $setup[0].FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="{0}"' -f $installDirectory) -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { throw "Installer exited $($install.ExitCode)" }
+          $installed = Join-Path $installDirectory 'YConnect.exe'
+          if (-not (Test-Path -LiteralPath $installed)) { throw 'Installed app is missing' }
+          $source = (Get-FileHash windows/YConnect/bin/Release/net48/YConnect.exe).Hash
+          if ((Get-FileHash -LiteralPath $installed).Hash -ne $source) { throw 'Installed executable differs from the tested build' }
+          $remove = Start-Process -FilePath (Join-Path $installDirectory 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru -WindowStyle Hidden
+          if ($remove.ExitCode -ne 0 -or (Test-Path -LiteralPath $installed)) { throw 'Uninstall verification failed' }
+      - name: Upload Windows release payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: windows/artifacts/release/*
+          if-no-files-found: error
       - name: Upload portable build and test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -29,3 +51,4 @@ jobs:
           path: |
             windows/artifacts/*.zip
             windows/.test-output/**/results.txt
+            windows/.test-output/**/layout/*.png

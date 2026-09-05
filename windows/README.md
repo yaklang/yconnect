@@ -7,8 +7,15 @@ C# + 原生 WPF 桌面客户端。不是 Electron；主界面不使用 HTML 或�
 
 Windows 10 1903+ / Windows 11，x64。较早系统需安装 .NET Framework 4.8。
 解压整个便携目录，双击 **YConnect.exe**，不要只移动 EXE 而遗漏 DLL。
-默认在屏幕右边显示贴边入口，点击打开小组件；点击托盘图标也可打开。
-小组件右上角 PIN 固定后不会因失焦而收起。边缘入口支持拖动高度、左右切换和多显示器。
+默认在屏幕右边显示贴边入口。鼠标靠近并短暂停留，即可看到不抢焦点的余额速览；移开自动收起，点击打开完整小组件。设置中可以改为只显示百分比或关闭速览。
+
+## 下载发行版
+
+[GitHub Releases](https://github.com/yaklang/yconnect/releases) 同时提供 Windows x64 安装程序、免安装 ZIP 和 macOS 通用 DMG。Windows 安装程序按当前用户安装，不需要管理员权限；卸载保留账户数据和第三方客户端配置。当前 Windows 包尚未进行 Authenticode 签名。
+
+CI 使用 `./windows/build.ps1 -Test -Package -Installer` 构建；本地生成安装程序另需 Inno Setup 6。版本号从根目录 `VERSION` 读取，并检查与 C# 项目版本一致。
+小组件右上角 PIN 固定后不会因失焦而收起。余额卡片、文字与空白区域可直接拖动，松手后柔和贴边；输入框和按钮保留原本操作。边缘入口支持拖动高度、左右切换和多显示器。托盘图标也能打开面板。
+首次正式运行默认开启随 Windows 登录启动，可在设置中关闭；已有用户的选择会保留。开发和演示环境不写启动项。
 无需管理员权限。没有修改防火墙、系统代理或第三方客户端配置的自动启动步骤。
 
 源码构建需 .NET SDK 8 或更新版本：
@@ -22,7 +29,7 @@ Windows 10 1903+ / Windows 11，x64。较早系统需安装 .NET Framework 4.8�
 
 ## 登录
 
-- **YakCool 账户**：点击「微信扫码登录」，在独立窗口中的 YakCool 官方 HTTPS 页面扫码。页面加载失败可重新加载；二维码过期可使用官方页面的刷新入口。
+- **YakCool 账户**：点击「在 YConnect 内扫码」，在独立窗口中的 YakCool 官方 HTTPS 页面扫码。页面加载失败可重新加载；二维码过期可使用官方页面的刷新入口。
 - **API Key**：粘贴业务 Key，验证额度和当前 Key 可用模型后连接。不提供账户管理权限。
 - 扫码需 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。系统通常已经提供；不随安装包捆绑 Chromium。没有 WebView2 时 API Key 模式仍可使用。
 - 如代理导致微信资源加载失败，使用 `YConnect.exe --no-proxy` 或在偏好设置开启「直连网络」后重启。API 和 WebView2 都绕过代理，直连选择会保存在本应用偏好中，不修改系统代理。构建脚本也支持 `-NoProxy`。
@@ -35,7 +42,11 @@ Windows 10 1903+ / Windows 11，x64。较早系统需安装 .NET Framework 4.8�
 
 原生托盘与屏幕贴边小组件、浅/深色主题、余额和额度、当前 Key 切换、账户 Key 创建/复制/删除、兑换码、模型搜索/协议筛选、接入信息复制、配置预览/备份/应用/恢复、分层连接检查、需确认的最小模型测试、可选开机启动。
 
-8 个独立适配器：OpenCode、Codex、Claude Code、Claude Desktop 第三方推理版、Pi、Grok Build、OpenClaw、Hermes。Gemini CLI 明确标记为需要协议桥。
+8 个独立适配器：OpenCode、Codex、Claude Code、Claude Desktop 第三方推理版、Pi、Grok Build、OpenClaw、Hermes。界面只显示原生检测到已安装的客户端，并按最近使用排序；小组件超过 4 个时显示最近 3 个与「更多」。仅有残留配置文件不算已安装。Gemini CLI 需要协议桥，不纳入可配置入口。
+
+管理中心侧栏默认展开，使用区别于正文的暖灰/深灰底色；可手动收起，底部保留 YAKCOOL 品牌、当前账户与连接状态。账户概览集中提供 Key 操作、模型搜索与复制、五种协议地址、全部已安装客户端、刷新与连接检查等常用操作，与小组件共用连接控件。小组件支持互斥展开协议/模型；「复制接入信息」包含敏感 Key，只应交给可信的人。复制 Key 和接入信息后，剪贴板内容在 60 秒后仍未变化时会自动清理。
+
+动效遵循 Windows 的减少动画设置；只有交互/刷新时短暂发光，没有常驻循环动画。设计细节见 [Windows 桌面交互](UX.md)。
 
 | 客户端 | Windows 默认配置位置 |
 | --- | --- |
@@ -66,7 +77,7 @@ Windows 10 1903+ / Windows 11，x64。较早系统需安装 .NET Framework 4.8�
 `--development` 使用真实 API、独立数据目录和隔离配置目录。
 `--smoke --output=...` 使用隔离数据与自动化测试；不会使用真实凭证或调用付费模型。
 `--verify-login --output=...` 只验证真实登录页与微信 iframe 加载，不会完成授权或伪造扫码成功。
-验证输出包含 PNG 和结果记录；`*-native.png` 是应用自身窗口在受控背景上的实际 Windows 合成截图，其余是 WPF 视觉树截图。均在忽略目录 `.test-output/` 中。
+验证输出包含 PNG 和结果记录；文件名含 `native` 的 PNG 是应用自身窗口在受控背景上的实际 Windows 合成截图，其余是 WPF 视觉树截图。`render-125/150` 是高 DPI 渲染检查，不代表修改了系统显示缩放。测试包含自身演示窗口的真实鼠标拖动、余额速览点击及不抢焦点检查。均在忽略目录 `.test-output/` 中。
 
 完整真实账户授权、实际余额/API Key CRUD、兑换到账，以及第三方客户端真实模型调用，需要用户自己的扫码、有效 Key 和对应客户端；不使用模拟结果声称已完成这些在线验证。
 

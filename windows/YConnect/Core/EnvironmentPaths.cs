@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 
 namespace YConnect.Core
@@ -9,6 +10,9 @@ namespace YConnect.Core
         public bool Development { get; }
         public bool Demo { get; }
         public bool BypassProxy { get; set; }
+        private string[] previewClients;
+        public string[] PreviewClients => previewClients ?? ClientRegistry.All.Where(c => !c.Bridge).Select(c => c.Id).ToArray();
+        public void SetPreviewClients(params string[] ids) { if (!Development) throw new InvalidOperationException("安装列表替身仅允许在隔离环境使用"); previewClients = ids; }
         public string DataRoot { get; }
         public string ClientHome { get; }
         public string LocalAppData { get; }
@@ -33,6 +37,12 @@ namespace YConnect.Core
         public bool OnLeft { get; set; }
         public double YPercent { get; set; } = 58;
         public bool Pinned { get; set; }
+        public bool SidebarCollapsed { get; set; }
+        public bool AnimationsEnabled { get; set; } = true;
+        public bool BalancePeekEnabled { get; set; } = true;
+        public bool PeekPercentageOnly { get; set; }
+        public bool? StartupChoice { get; set; }
+        public int StartupPolicyVersion { get; set; } = 1;
         public string Theme { get; set; } = "light";
         public bool BypassProxy { get; set; }
         public string SelectedClient { get; set; } = "opencode";
@@ -40,6 +50,7 @@ namespace YConnect.Core
         public JObject SelectedModels { get; set; } = new JObject();
         public string[] RecentClients { get; set; } = new string[0];
         public string[] RecentModels { get; set; } = new string[0];
+        public string CurrentModel { get; set; }
     }
     public static class Json
     {

@@ -4,6 +4,8 @@ YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工�
 
 > 当前版本：0.2.0 · macOS 14+；新增 Windows 10/11 x64 原生移植版
 
+发行下载：[GitHub Releases](https://github.com/yaklang/yconnect/releases)。同一版本提供 Windows x64 安装程序/便携 ZIP、macOS Apple Silicon + Intel 通用 DMG 和 SHA-256 校验文件。当前包尚无正式发行签名，详见 Release 说明。
+
 ## Windows 原生版
 
 使用系统 .NET Framework 4.8，无 Electron，无打包浏览器；仅扫码登录按需使用系统 WebView2。
@@ -11,6 +13,8 @@ YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工�
 Windows 路径、权限保护、登录与验证边界见 [Windows 说明](windows/README.md)；下方原有平台路径与 Keychain 说明针对 macOS。
 
 Windows 界面与交互实现必须同时参考 [YConnect macOS 交互基线与 Windows 适配规范](docs/macos-ux-reference-for-windows.md)。该文档包含真实 macOS 渲染截图、离线 Mock 数据、跨平台控件映射和 Windows 对齐清单。
+
+Windows 增加了不抢焦点的贴边余额速览、原生平滑拖动、可收起侧栏与轻量动效，详见 [Windows 桌面交互](windows/UX.md)。
 
 ## 核心体验
 

@@ -26,6 +26,8 @@ namespace YConnect.Core
         public string Mode { get; private set; } = "signedOut";
         public bool Busy { get; private set; }
         public bool CanRetrySession { get; private set; }
+        public bool HadPreferencesFile { get; private set; }
+        public bool LegacyStartupPreferences { get; private set; }
         public string Error { get; private set; }
         public string Message { get; private set; }
         public string Warning { get; private set; }
@@ -42,7 +44,7 @@ namespace YConnect.Core
         public bool Authenticated => Mode == "account" || Mode == "apiKey";
         public string CurrentKey => Mode == "apiKey" ? standaloneKey : Keys.FirstOrDefault(k => (long?)k["id"] == Preferences.SelectedKey && k.Flag("active"))?.Text("api_key");
         public string DisplayName => Mode == "account" ? Dashboard?["user"].Text("display_name", "YakCool 账户") : Mode == "apiKey" ? KeyInfo?["key"].Text("label", "API Key") : "连接你的 YakCool";
-        public double? Remaining => Dashboard?["ai_service_credit"]?["token_remaining"] != null ? Dashboard["ai_service_credit"].Number("token_remaining") / Math.Max(1, Dashboard["ai_service_credit"].Number("weighted_tokens_per_rmb", 10000000)) : (double?)null;
+        public double? Remaining => Dashboard?["ai_service_credit"]?["token_remaining"] != null && Dashboard["ai_service_credit"]["token_remaining"].Type != JTokenType.Null ? Dashboard["ai_service_credit"].Number("token_remaining") / Math.Max(1, Dashboard["ai_service_credit"].Number("weighted_tokens_per_rmb", 10000000)) : (double?)null;
         public string SelectedModel => Preferences.SelectedModels.Text(Preferences.SelectedClient);
         public YConnectStore(EnvironmentPaths env, IYakCoolApi api)
         {
@@ -50,6 +52,8 @@ namespace YConnect.Core
             try
             {
                 var text = SecureFiles.ReadText(Path.Combine(env.DataRoot, "preferences.json"));
+                HadPreferencesFile = text != null;
+                LegacyStartupPreferences = text != null && Json.Parse(text)["StartupPolicyVersion"] == null;
                 if (text != null) Preferences = JsonConvert.DeserializeObject<Preferences>(text) ?? new Preferences();
                 Clients.Get(Preferences.SelectedClient); Preferences.SelectedModels = Preferences.SelectedModels ?? new JObject();
                 Preferences.RecentClients = Preferences.RecentClients ?? new string[0]; Preferences.RecentModels = Preferences.RecentModels ?? new string[0];
@@ -59,6 +63,19 @@ namespace YConnect.Core
         }
         public void Notify() => Changed?.Invoke();
         public void SetMessage(string message) { Message = message; Error = null; Notify(); }
+        public void ClearMessage(string expected) { if (Message == expected) { Message = null; Notify(); } }
+        public string SuggestedKeyName()
+        {
+            for (var i = 1; ; i++) { var value = "YConnect-" + i; if (!Keys.Any(k => k.Text("label").Equals(value, StringComparison.OrdinalIgnoreCase))) return value; }
+        }
+        public void RememberModel(string id)
+        {
+            if (!Models.Any(m => m.Id == id)) throw new InvalidOperationException("当前 Key 无权使用此模型");
+            Preferences.CurrentModel = id;
+            Preferences.RecentModels = new[] { id }.Concat(Preferences.RecentModels.Where(m => m != id)).Take(8).ToArray();
+            SavePreferences();
+        }
+        public AvailableModel[] FrequentModels => Preferences.RecentModels.Concat(Models.Select(m => m.Id)).Distinct().Select(id => Models.FirstOrDefault(m => m.Id == id)).Where(m => m != null).Take(3).ToArray();
         public void SetError(string message) { Error = YakCoolApi.Redact(message, CurrentKey, cookie); Notify(); }
         public void SavePreferences() { SecureFiles.WriteText(Path.Combine(Environment.DataRoot, "preferences.json"), JsonConvert.SerializeObject(Preferences, Formatting.Indented)); Notify(); }
         public async Task<bool> Run(Func<Task> operation)
@@ -188,6 +205,7 @@ namespace YConnect.Core
         }
         private void ChooseModel()
         {
+            if (!Models.Any(m => m.Id == Preferences.CurrentModel)) Preferences.CurrentModel = FrequentModels.FirstOrDefault()?.Id;
             var valid = Clients.Get(Preferences.SelectedClient).Compatible(Models).ToArray();
             if (!valid.Any(m => m.Id == SelectedModel)) Preferences.SelectedModels[Preferences.SelectedClient] = valid.FirstOrDefault()?.Id ?? "";
         }

@@ -74,10 +74,9 @@ namespace YConnect.Core
         }
         public bool Installed(string id)
         {
-            if (Paths(id).Any(File.Exists)) return true;
-            var name = id == "claude-code" ? "claude" : id == "grok-build" ? "grok" : id;
-            return (System.Environment.GetEnvironmentVariable("PATH") ?? "").Split(';').Where(p => !string.IsNullOrWhiteSpace(p)).Any(p => new[] { ".exe", ".cmd", ".bat" }.Any(ext => File.Exists(Path.Combine(p, name + ext))));
+            return Native.ClientDetection.Installed(Environment, id);
         }
+        public ClientDescriptor[] InstalledClients(IEnumerable<string> recent) => recent.Concat(All.Select(c => c.Id)).Distinct().Select(id => All.FirstOrDefault(c => c.Id == id)).Where(c => c != null && Installed(c.Id)).ToArray();
         public ClientStatus Inspect(string id)
         {
             var result = new ClientStatus();
