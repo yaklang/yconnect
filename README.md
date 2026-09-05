@@ -10,6 +10,8 @@ YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工�
 运行 `./windows/build.ps1 -Test -Smoke -Package -Run` 构建、验证并启动。
 Windows 路径、权限保护、登录与验证边界见 [Windows 说明](windows/README.md)；下方原有平台路径与 Keychain 说明针对 macOS。
 
+Windows 界面与交互实现必须同时参考 [YConnect macOS 交互基线与 Windows 适配规范](docs/macos-ux-reference-for-windows.md)。该文档包含真实 macOS 渲染截图、离线 Mock 数据、跨平台控件映射和 Windows 对齐清单。
+
 ## 核心体验
 
 - 菜单栏常驻：快速查看连接状态和余额，复制当前 API Key，打开完整管理页。
