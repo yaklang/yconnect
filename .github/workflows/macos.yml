@@ -117,7 +117,7 @@ jobs:
           trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
           app="$mount_dir/YConnect.app"
           codesign --verify --deep --strict "$app"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/YConnect"
+          lipo "$app/Contents/MacOS/YConnect" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
           test -L "$mount_dir/Applications"
