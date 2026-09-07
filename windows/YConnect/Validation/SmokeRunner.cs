@@ -27,6 +27,53 @@ namespace YConnect.Validation
         private static string directory;
         private static AppController app;
         private static void Assert(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
+        private static async Task ClickConfiguration(string id)
+        {
+            Find<Expander>(app.Manager, "client-config-expand").IsExpanded = true; await Idle(); await Click(app.Manager, id);
+        }
+        private static async Task RechargeCapture(Window window, string name, bool dark = false)
+        {
+            try { await NativeCapture.Save(window, Path.Combine(directory, name), dark); steps.Add("Native composition captured: " + name); }
+            catch (InvalidOperationException e) { steps.Add("NOT VERIFIED native composition " + name + ": " + e.Message + ". WPF-rendered screenshot and functional assertions remain separate."); }
+        }
+        private static async Task VerifyRecharge()
+        {
+            var demo = (DemoApi)app.Store.Api; var beforeCreates = demo.PaymentCreates;
+            await Click(app.Manager, "manager-recharge"); await Idle();
+            var window = app.Recharge; Assert(window != null && demo.PaymentCreates == beforeCreates, "opening recharge created an order");
+            Capture(window, "recharge-01-amount.png"); await RechargeCapture(window, "recharge-01-amount-native.png");
+            Find<TextBox>(window, "recharge-amount").Text = "0.01"; await Click(window, "recharge-create");
+            Assert(demo.PaymentCreates == beforeCreates && All<TextBlock>(window).Any(x => x.Text.Contains("最多两位小数")), "invalid amount submitted");
+            Find<TextBox>(window, "recharge-amount").Text = "12.34"; await Click(window, "recharge-alipay"); await Click(window, "recharge-create"); await Idle();
+            Assert(window.Session.AmountCents == 1234 && window.Session.Channel == "alipay" && demo.PaymentCreates == beforeCreates + 1 && window.Session.CanShowQr, "native checkout creation failed");
+            Capture(window, "recharge-02-qr.png"); await RechargeCapture(window, "recharge-02-qr-native.png");
+            app.OpenRecharge(); Assert(ReferenceEquals(window, app.Recharge) && demo.PaymentCreates == beforeCreates + 1, "repeated recharge opens duplicated order/window");
+            await Click(window, "recharge-close"); app.OpenRecharge(); window = app.Recharge; await Idle();
+            Assert(window.Session.AmountCents == 1234 && demo.PaymentCreates == beforeCreates + 1, "reopening lost the existing order");
+            var beforeBalance = app.Store.Remaining.Value; demo.CompleteDemoPayment(); await Click(window, "recharge-check"); await Idle();
+            Assert(window.Session.Paid && Math.Abs(app.Store.Remaining.Value - beforeBalance - 12.34) < .01, "verified demo payment did not refresh balance");
+            Assert(FindOptional<Image>(window, "recharge-qr") == null, "QR visible after payment"); Capture(window, "recharge-03-paid.png");
+            await Click(window, "recharge-another"); Assert(!window.Session.HasOrder && demo.PaymentCreates == beforeCreates + 1, "another recharge must wait for explicit submit");
+            await Click(window, "recharge-close");
+            steps.Add("Native recharge: no order on open, exact cents, Alipay QR, singleton/reopen, verified demo payment and global balance refresh; no real payment requests.");
+        }
+        public static async Task<bool> RunRecharge(AppController controller, string output)
+        {
+            directory = output; app = controller; Directory.CreateDirectory(output);
+            try
+            {
+                app.ShowManager("overview"); await Idle(); await VerifyRecharge();
+                await app.Store.Run(() => app.Store.LoginKey(DemoApi.Key, false)); app.OpenRecharge(); await Idle();
+                Assert(FindOptional<Button>(app.Recharge, "recharge-create") == null, "API key received payment permission"); Capture(app.Recharge, "recharge-04-login-required.png");
+                await Click(app.Recharge, "recharge-login"); await Idle(); Assert(app.Store.Mode == "account" && app.Recharge != null && FindOptional<Button>(app.Recharge, "recharge-create") != null, "login did not resume recharge");
+                app.Recharge.Close(); Ui.SetTheme("dark"); app.OpenRecharge(); await Idle(); Capture(app.Recharge, "recharge-05-dark-amount.png");
+                await Click(app.Recharge, "recharge-create"); await Idle(); Capture(app.Recharge, "recharge-06-dark-qr.png"); await RechargeCapture(app.Recharge, "recharge-06-dark-qr-native.png", true);
+                app.Recharge.Close();
+                steps.Add("API-key permission boundary, account login resumes amount form, dark QR rendering: passed. Native composition status is listed separately above.");
+                File.WriteAllLines(Path.Combine(output, "recharge-results.txt"), steps.Concat(new[] { "PASS functional checks — isolated demo only; real payment requests: 0" })); return true;
+            }
+            catch (Exception e) { File.WriteAllLines(Path.Combine(output, "recharge-results.txt"), steps.Concat(new[] { "FAIL: " + e })); return false; }
+        }
         public static async Task<bool> Run(AppController controller, string output)
         {
             directory = output; app = controller; Directory.CreateDirectory(output);
@@ -39,20 +86,20 @@ namespace YConnect.Validation
                 app.ShowManager("overview"); await Idle(); Capture(app.Manager, "03-manager-overview.png");
                 await Click(app.Manager, "nav-models"); Find<TextBox>(app.Manager, "model-search").Text = "Claude"; await Idle();
                 Assert(All<TextBlock>(app.Manager).Any(t => t.Text.Contains("Claude Sonnet")), "model search did not return Claude"); Capture(app.Manager, "04-model-search.png");
-                await Click(app.Manager, "model-filter-responses"); await Idle(); Assert(All<TextBlock>(app.Manager).Any(t => t.Text.Contains("没有匹配")), "incompatible filter should show empty state");
+                await Click(app.Manager, "model-filter-responses"); await Idle(); Assert(All<TextBlock>(app.Manager).Any(t => t.Text.Contains("Claude Sonnet")), "gateway-compatible model disappeared from Responses filter");
                 await Click(app.Manager, "nav-clients"); await Click(app.Manager, "client-select-codex"); await Idle();
                 var model = Find<ComboBox>(app.Manager, "client-model"); Assert(model.Items.Cast<AvailableModel>().All(m => m.Protocols.Contains("responses")), "Codex picker included incompatible model");
                 Capture(app.Manager, "05-clients-codex.png");
                 app.DialogOpenedForValidation = dialog => dialog.Dispatcher.BeginInvoke(new Action(() => { Capture(dialog, "06-configuration-preview.png"); Invoke(Find<Button>(dialog, "dialog-confirm")); }), DispatcherPriority.Background);
-                await Click(app.Manager, "client-preview"); await Idle(); Assert(app.Store.Clients.Inspect("codex").State == "configured", "UI configuration apply failed: " + app.Store.Error);
+                await ClickConfiguration("client-preview"); await Idle(); Assert(app.Store.Clients.Inspect("codex").State == "configured", "UI configuration apply failed: " + app.Store.Error);
                 steps.Add("Applied Codex config using the native preview dialog and confirmation button."); Capture(app.Manager, "07-clients-applied.png");
                 app.DialogOpenedForValidation = dialog => dialog.Dispatcher.BeginInvoke(new Action(() => Invoke(Find<Button>(dialog, "dialog-confirm"))), DispatcherPriority.Background);
-                await Click(app.Manager, "client-restore"); await Idle(); Assert(!File.Exists(app.Store.Clients.Paths("codex")[0]), "UI restore did not remove newly-created config"); steps.Add("Restored the pre-apply state through the native restore confirmation.");
+                await ClickConfiguration("client-restore"); await Idle(); Assert(!File.Exists(app.Store.Clients.Paths("codex")[0]), "UI restore did not remove newly-created config"); steps.Add("Restored the pre-apply state through the native restore confirmation.");
                 foreach (var client in ClientRegistry.All.Where(c => !c.Bridge && c.Id != "codex"))
                 {
                     await Click(app.Manager, "client-select-" + client.Id); Capture(app.Manager, "client-" + client.Id + ".png");
-                    await Click(app.Manager, "client-preview"); Assert(app.Store.Clients.Inspect(client.Id).State == "configured", "UI apply failed for " + client.Id + ": " + app.Store.Error);
-                    await Click(app.Manager, "client-restore"); Assert(app.Store.Clients.Inspect(client.Id).State == "notConfigured", "UI restore failed for " + client.Id);
+                    await ClickConfiguration("client-preview"); Assert(app.Store.Clients.Inspect(client.Id).State == "configured", "UI apply failed for " + client.Id + ": " + app.Store.Error);
+                    await ClickConfiguration("client-restore"); Assert(app.Store.Clients.Inspect(client.Id).State == "notConfigured", "UI restore failed for " + client.Id);
                 }
                 steps.Add("Applied and restored all 8 adapters through actual WPF controls and confirmation dialogs.");
                 await Click(app.Manager, "nav-keys"); Capture(app.Manager, "08-key-management.png");
@@ -62,7 +109,9 @@ namespace YConnect.Validation
                 await Click(app.Manager, "key-delete-" + created); await Idle(); Assert(app.Store.Keys.Count == 2, "UI key deletion failed");
                 Find<TextBox>(app.Manager, "redeem-code").Text = "DEMO-REDEEM-1234"; await Click(app.Manager, "redeem-submit"); Assert(Math.Abs(app.Store.Remaining.Value - 138.6) < .01, "UI redemption failed");
                 await Click(app.Manager, "nav-checks"); await Click(app.Manager, "checks-start"); await Idle(); Assert(app.Store.Checks.All(c => c.State == "passed"), "UI checks failed"); Capture(app.Manager, "09-connection-checks.png");
-                await Click(app.Manager, "probe-submit"); await Idle(); Assert(app.Store.Message.Contains("OK"), "confirmed demo probe failed");
+                await Click(app.Manager, "probe-submit"); await Idle(); Assert(app.Store.Message.Contains("可访问"), "confirmed demo probe failed");
+                await Click(app.Manager, "probe-quality"); await Idle(); Assert(app.Store.QualityChecks.Count == 15 && app.Store.QualityChecks.All(x => new[] { "passed", "unsupported" }.Contains(x.State)), "full capability profile failed"); Capture(app.Manager, "09b-model-capability-profile.png");
+                await VerifyRecharge();
                 await Click(app.Manager, "nav-settings"); Capture(app.Manager, "10-settings.png");
                 await Click(app.Manager, "setting-side-left"); Assert(app.Store.Preferences.OnLeft, "left edge setting failed"); Capture(app.Edge, "11-left-edge.png");
                 await Click(app.Manager, "setting-side-right"); Assert(!app.Store.Preferences.OnLeft, "right edge setting failed");
@@ -126,7 +175,7 @@ namespace YConnect.Validation
                 Assert(Math.Abs(height - app.Widget.ActualHeight) <= 2, "copy feedback moved widget layout");
                 await Click(app.Widget, "widget-model-gpt-5.4"); Assert(Clipboard.GetText() == "gpt-5.4", "model copy exposed access info instead of model ID");
                 await Click(app.Widget, "widget-copy-access"); var access = Clipboard.GetText();
-                Assert(access.Contains("YConnect") && access.Contains("gpt-5.4") && access.Contains(app.Store.CurrentKey) && AppController.Endpoints.All(e => access.Contains(e.Url)), "access copy missing source/model/key/endpoints");
+                Assert(access.Contains("YConnect") && access.Contains("YakCool:") && access.Contains("gpt-5.4") && access.Contains(app.Store.CurrentKey) && AppController.Endpoints.All(e => access.Contains(e.Url)) && app.Store.Models.All(m => access.Contains(m.Name) && access.Contains(m.Id)), "access copy missing brand/models/key/endpoints");
                 await Click(app.Widget, "widget-protocols"); Assert(app.Widget.ExpandedSection == "protocols", "protocol expansion");
                 Capture(app.Widget, "24-widget-protocols.png");
                 foreach (var endpoint in AppController.Endpoints) { await Click(app.Widget, "endpoint-" + endpoint.Id); Assert(Clipboard.GetText() == endpoint.Url, "endpoint copy included sensitive data"); }

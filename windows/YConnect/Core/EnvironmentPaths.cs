@@ -51,6 +51,8 @@ namespace YConnect.Core
         public string[] RecentClients { get; set; } = new string[0];
         public string[] RecentModels { get; set; } = new string[0];
         public string CurrentModel { get; set; }
+        public string LaunchDirectory { get; set; }
+        public string LaunchTerminal { get; set; } = "terminal";
     }
     public static class Json
     {

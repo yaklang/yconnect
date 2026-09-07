@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup><TargetFramework>net48</TargetFramework><OutputType>WinExe</OutputType><UseWPF>true</UseWPF><LangVersion>latest</LangVersion><PlatformTarget>x64</PlatformTarget><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects></PropertyGroup>
+  <ItemGroup><PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all"/><ProjectReference Include="..\YConnect\YConnect.csproj"/><Reference Include="System.Management"/><Reference Include="System.Net.Http"/></ItemGroup>
+  <Target Name="CopyLauncher" AfterTargets="Build"><Copy SourceFiles="..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe;..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe.config" DestinationFolder="$(OutDir)" /></Target>
+</Project>

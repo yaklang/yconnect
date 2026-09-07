@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -14,6 +15,19 @@ namespace YConnect.Core
         public string Title { get; set; }
         public string State { get; set; } = "pending";
         public string Detail { get; set; }
+        public long Milliseconds { get; set; }
+    }
+    public sealed class ModelQualityCheck
+    {
+        public string Key { get; set; }
+        public string Title { get; set; }
+        public string Category { get; set; }
+        public string State { get; set; } = "pending";
+        public string Result { get; set; }
+        public string Detail { get; set; }
+        public string Output { get; set; }
+        public string Reasoning { get; set; }
+        public int ToolCalls { get; set; }
         public long Milliseconds { get; set; }
     }
     public sealed class YConnectStore
@@ -38,6 +52,15 @@ namespace YConnect.Core
         public JArray Catalog { get; private set; } = new JArray();
         public List<AvailableModel> Models { get; private set; } = new List<AvailableModel>();
         public List<ServiceCheck> Checks { get; private set; } = new List<ServiceCheck>();
+        public List<ModelQualityCheck> QualityChecks { get; private set; } = new List<ModelQualityCheck>();
+        public string QualityModel { get; private set; }
+        public string QualityProtocol { get; private set; }
+        public ModelProbeResult LastProbe { get; private set; }
+        public string LastProbeModel { get; private set; }
+        public string LastProbeProtocol { get; private set; }
+        private CancellationTokenSource testing;
+        public bool CanCancelTest => testing != null && !testing.IsCancellationRequested;
+        public void CancelTest() { testing?.Cancel(); Notify(); }
         public DateTime? LastRefresh { get; private set; }
         private string standaloneKey, cookie, previewKey;
         private ConfigurationPlan preview;
@@ -88,6 +111,11 @@ namespace YConnect.Core
         }
         public string RequireKey() => !string.IsNullOrEmpty(CurrentKey) ? CurrentKey : throw new InvalidOperationException("请先连接 API Key 或选择有效的账户 Key");
         private string RequireAccount() => Mode == "account" && cookie != null ? cookie : throw new InvalidOperationException("此功能需要 YakCool 账户登录，API Key 模式没有账户管理权限");
+        public RechargeSession NewRechargeSession()
+        {
+            var session = RequireAccount();
+            return new RechargeSession(Api, session, DisplayName, () => Mode == "account" && cookie == session);
+        }
         public static List<AvailableModel> NormalizeModels(JToken data)
         {
             if (!(data is JArray array)) throw new InvalidOperationException("模型列表格式无效");
@@ -96,10 +124,11 @@ namespace YConnect.Core
             {
                 var id = YakCoolApi.ValidateModel(entry.Text("id"));
                 if (!(entry["protocols"] is JArray protocols)) throw new InvalidOperationException("模型能力数据格式无效");
-                var names = protocols.Values<string>().Where(p => p != null).Select(p => p.Trim().ToLowerInvariant()).Distinct().ToArray();
+                var names = protocols.Values<string>().Where(p => p != null).Select(p => p.Trim().ToLowerInvariant()).Where(YakCoolApi.Protocols.Contains).Distinct().ToArray();
+                if (names.Length == 0) continue;
                 var existing = models.FirstOrDefault(m => m.Id == id);
-                if (existing != null) existing.Protocols = existing.Protocols.Concat(names).Distinct().ToArray();
-                else models.Add(new AvailableModel { Id = id, Name = entry.Text("name", id), Protocols = names });
+                if (existing != null) existing.ReportedProtocols = existing.ReportedProtocols.Concat(names).Distinct().ToArray();
+                else models.Add(new AvailableModel { Id = id, Name = entry.Text("name", id), ReportedProtocols = names, Protocols = YakCoolApi.Protocols.ToArray() });
             }
             return models;
         }
@@ -122,11 +151,13 @@ namespace YConnect.Core
         public async Task LoginKey(string raw, bool persist = true)
         {
             var key = YakCoolApi.ValidateKey(raw);
+            var changedConnection = Mode != "apiKey" || standaloneKey != key;
             var requests = new[] { Api.Get("/api/key/info", key: key), Api.Get("/api/key/models", key: key) };
             var results = await Task.WhenAll(requests); var info = results[0]; var models = NormalizeModels(results[1]["data"]);
-            if (!(info["key"] is JObject) || !(info["quota"] is JObject)) throw new InvalidOperationException("Key 状态数据无效");
+            ValidateKeyInfo(info);
             if (persist) SecureFiles.SaveSession(Environment, new JObject { ["mode"] = "apiKey", ["key"] = key });
             Mode = "apiKey"; CanRetrySession = false; standaloneKey = key; cookie = null; KeyInfo = info; Models = models; Dashboard = null; Account = null; Keys = new JArray(); Catalog = new JArray(); preview = null; Warning = null;
+            if (changedConnection) ClearChecks();
             ChooseModel(); LastRefresh = DateTime.Now; Message = "API Key 已安全连接";
         }
         public async Task LoginAccount(string value, bool persist = true)
@@ -137,7 +168,9 @@ namespace YConnect.Core
             if (!(me["user"] is JObject)) throw new ApiRequestException(401, "公开用户会话已过期，请重新扫码");
             var data = await FetchAccount(value);
             if (persist) SecureFiles.SaveSession(Environment, new JObject { ["mode"] = "account", ["cookie"] = value });
+            var changedConnection = Mode != "account" || cookie != value;
             cookie = value; standaloneKey = null; Mode = "account"; CanRetrySession = false; KeyInfo = null; InstallAccount(data); preview = null;
+            if (changedConnection) ClearChecks();
             await LoadSelectedModels(); Message = "YakCool 账户已安全连接";
         }
         private async Task<JObject[]> FetchAccount(string session)
@@ -150,6 +183,7 @@ namespace YConnect.Core
         {
             Dashboard = data[0]; Account = data[1]; Keys = data[2].Array("keys"); Catalog = data[3].Array("models");
             var selected = Keys.FirstOrDefault(k => k.Flag("active") && (long?)k["id"] == Preferences.SelectedKey) ?? Keys.FirstOrDefault(k => k.Flag("active"));
+            if (Preferences.SelectedKey != (long?)selected?["id"]) ClearChecks();
             Preferences.SelectedKey = (long?)selected?["id"]; LastRefresh = DateTime.Now;
         }
         private async Task LoadSelectedModels()
@@ -173,11 +207,11 @@ namespace YConnect.Core
             if (Mode == "account") try { await Api.Send("/api/auth/logout", "POST", null, cookie); } catch { }
             SecureFiles.ClearSession(Environment); ResetAuthentication(); Message = "已退出登录";
         }
-        private void ResetAuthentication() { standaloneKey = null; cookie = null; Mode = "signedOut"; Dashboard = null; Account = null; KeyInfo = null; Keys.Clear(); Catalog.Clear(); Models.Clear(); Checks.Clear(); preview = null; previewKey = null; LastRefresh = null; Warning = null; CanRetrySession = false; }
+        private void ResetAuthentication() { standaloneKey = null; cookie = null; Mode = "signedOut"; Dashboard = null; Account = null; KeyInfo = null; Keys.Clear(); Catalog.Clear(); Models.Clear(); ClearChecks(); preview = null; previewKey = null; LastRefresh = null; Warning = null; CanRetrySession = false; }
         public async Task SelectKey(long id)
         {
             if (!Keys.Any(k => (long?)k["id"] == id && k.Flag("active"))) throw new InvalidOperationException("请选择有效的账户 Key");
-            Preferences.SelectedKey = id; preview = null; await LoadSelectedModels(); SavePreferences();
+            Preferences.SelectedKey = id; preview = null; ClearChecks(); await LoadSelectedModels(); SavePreferences();
         }
         public async Task CreateKey(string label)
         {
@@ -223,25 +257,111 @@ namespace YConnect.Core
         public async Task RestoreConfiguration(string id) { Message = await Task.Run(() => Clients.Restore(id)); preview = null; }
         public async Task CheckConnection()
         {
+            Error = Message = null;
             Checks = new List<ServiceCheck> { new ServiceCheck { Title = "YakCool 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
             Func<Task<string>>[] operations ={
                 async()=>{var r=await Api.Get("/api/health");if(!new[]{"ok","healthy"}.Contains(r.Text("status")))throw new InvalidOperationException("服务状态异常");return "服务可达";},
-                async()=>{var r=await Api.Get("/api/key/info",key:RequireKey());if(!new[]{"active","ok"}.Contains(r["key"].Text("status")))throw new InvalidOperationException("Key 未启用");return "Key 有效";},
-                async()=>{Models=NormalizeModels((await Api.Get("/api/key/models",key:RequireKey()))["data"]);ChooseModel();return Models.Count+" 个模型可用";},
+                async()=>{var r=await Api.Get("/api/key/info",key:RequireKey()); ValidateKeyInfo(r); KeyInfo=r; if(r["quota"].Flag("exhausted")) { Checks[1].State="warning"; return "Key 已启用，额度已用尽，请充值"; } return "Key 已启用 · "+r["quota"].Text("display", "额度可用");},
+                async()=>{Models=NormalizeModels((await Api.Get("/api/key/models",key:RequireKey()))["data"]);ChooseModel();if(Models.Count==0){Checks[2].State="warning";return "Key 有效，但当前没有可用模型";}return Models.Count+" 个授权模型 · 网关提供三种入口；实际调用需下方验证";},
             };
             for (var i = 0; i < operations.Length; i++)
             {
                 var item = Checks[i]; item.State = "running"; Notify(); var watch = System.Diagnostics.Stopwatch.StartNew();
-                try { item.Detail = await operations[i](); item.State = "passed"; } catch (Exception e) { item.Detail = YakCoolApi.Redact(e.Message, CurrentKey); item.State = "failed"; }
+                if (i > 0 && string.IsNullOrEmpty(CurrentKey)) { item.State = "skipped"; item.Detail = "请先连接或选择有效的 API Key"; Notify(); continue; }
+                if (i == 2 && Checks[1].State == "failed") { item.State = "skipped"; item.Detail = "Key 验证失败，修复后重新检查"; Models.Clear(); Notify(); continue; }
+                try { item.Detail = await operations[i](); if (item.State == "running") item.State = "passed"; } catch (Exception e) { item.Detail = YakCoolApi.Redact(e.Message, CurrentKey); item.State = "failed"; }
                 item.Milliseconds = watch.ElapsedMilliseconds; Notify();
             }
-            Message = Checks.All(c => c.State == "passed") ? "基础检查通过，未调用付费模型" : "检查完成，请查看失败项目";
+            Message = Checks.All(c => c.State == "passed") ? "基础检查通过，未调用付费模型" : "检查完成，请查看标记项目；未调用付费模型";
+        }
+        private void ClearChecks() { Checks.Clear(); QualityChecks.Clear(); QualityModel = QualityProtocol = null; LastProbe = null; LastProbeModel = LastProbeProtocol = null; }
+        private static void ValidateKeyInfo(JObject info)
+        {
+            if (!(info["key"] is JObject key) || !(info["quota"] is JObject)) throw new InvalidOperationException("Key 状态数据无效，请稍后重试");
+            var status = key.Text("status").Trim().ToLowerInvariant();
+            if (!new[] { "enabled", "active", "ok" }.Contains(status)) throw new InvalidOperationException(string.IsNullOrEmpty(status) ? "服务未返回 Key 启用状态" : "Key 已停用，请选择其他 Key");
         }
         public async Task Probe(string model, string protocol, bool confirmed)
         {
             if (!confirmed) throw new InvalidOperationException("真实模型调用需要确认");
             if (!Models.Any(m => m.Id == model && m.Protocols.Contains(protocol))) throw new InvalidOperationException("所选模型或协议不可用");
-            Message = "模型响应：" + await Api.Probe(RequireKey(), model, protocol);
+            LastProbe = null; LastProbeModel = model; LastProbeProtocol = protocol;
+            using var cancellation = new CancellationTokenSource(); testing = cancellation; Notify();
+            ModelProbeResult result;
+            try { result = await Api.Probe(RequireKey(), model, protocol, "connectivity", cancellation.Token); }
+            catch (OperationCanceledException) { LastProbe = new ModelProbeResult { Status = "skipped", Result = "检测已取消", Detail = "已停止等待响应；已经到达服务端的请求可能仍会计费。" }; Message = "已取消模型测试"; return; }
+            catch (Exception e) { LastProbe = new ModelProbeResult { Status = "failed", Result = "请求未完成", Detail = YakCoolApi.Redact(e.Message, CurrentKey) }; throw; }
+            finally { testing = null; Notify(); }
+            LastProbe = result;
+            Message = result.Result + " · " + result.Milliseconds + " ms";
         }
+        public async Task ProbeQuality(string model, string protocol, bool confirmed)
+        {
+            if (!confirmed) throw new InvalidOperationException("完整能力检测需要确认");
+            if (!Models.Any(m => m.Id == model && m.Protocols.Contains(protocol))) throw new InvalidOperationException("所选模型或协议不可用");
+            QualityModel = model; QualityProtocol = protocol; QualityChecks = NewQualityChecks();
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(4)); testing = cancellation;
+            ModelProbeResult toolsAuto = null;
+            var billable = 0;
+            var deadline = DateTime.UtcNow.AddMinutes(4);
+            try { foreach (var item in QualityChecks)
+            {
+                if (cancellation.IsCancellationRequested) { SkipPendingQuality(); break; }
+                if (item.Key == "protocol") { item.State = "running"; item.Result = UiProtocol(protocol) + " 待实测"; item.Detail = "目录确认模型权限；入口是否响应由下一项真实调用确认。"; Notify(); continue; }
+                if (item.Key == "tools_schema")
+                {
+                    item.State = toolsAuto?.ToolSchemaValid == true ? "passed" : "unsupported";
+                    item.Result = toolsAuto?.ToolSchemaValid == true ? "结构符合 function tool_calls" : "工具结构不完整";
+                    item.Detail = toolsAuto == null ? "自动工具调用没有留下可校验结果。" : "复用自动工具调用响应，不产生额外请求。";
+                    item.ToolCalls = toolsAuto?.ToolCalls ?? 0; Notify(); continue;
+                }
+                if (DateTime.UtcNow >= deadline)
+                {
+                    foreach (var remaining in QualityChecks.Where(x => x.State == "pending")) { remaining.State = "skipped"; remaining.Result = "已跳过"; remaining.Detail = "完整检测达到 4 分钟上限。"; }
+                    Notify(); break;
+                }
+                item.State = "running"; Notify();
+                try
+                {
+                    billable++; var result = await Api.Probe(RequireKey(), model, protocol, item.Key, cancellation.Token);
+                    item.State = result.Status; item.Result = result.Result; item.Detail = result.Detail; item.Output = result.Output; item.Reasoning = result.Reasoning; item.ToolCalls = result.ToolCalls; item.Milliseconds = result.Milliseconds;
+                    if (item.Key == "tools_auto") toolsAuto = result;
+                    if (item.Key == "connectivity") { var entry = QualityChecks[0]; entry.State = result.Status == "failed" ? "failed" : "passed"; entry.Result = entry.State == "passed" ? UiProtocol(protocol) + " 已响应" : "入口返回异常响应"; entry.Detail = "基于本次真实请求结果，不将目录声明当作实测。"; if (result.Status == "failed") { SkipPendingQuality(); Notify(); break; } }
+                }
+                catch (OperationCanceledException) { item.State = "skipped"; item.Result = "已停止"; item.Detail = "检测被取消或达到 4 分钟上限；已到达服务端的请求可能仍会计费。"; SkipPendingQuality(); Notify(); break; }
+                catch (Exception e)
+                {
+                    var rejectedCapability = item.Key != "connectivity" && e is ApiRequestException requestError && new[] { 400, 422 }.Contains(requestError.StatusCode);
+                    item.State = rejectedCapability ? "unsupported" : "failed"; item.Result = rejectedCapability ? "服务未接受该能力参数" : "请求失败"; item.Detail = YakCoolApi.Redact(e.Message, CurrentKey);
+                    if (item.Key == "connectivity")
+                    {
+                        QualityChecks[0].State = "failed"; QualityChecks[0].Result = "本次未验证通过"; QualityChecks[0].Detail = item.Detail; SkipPendingQuality();
+                        Notify(); break;
+                    }
+                }
+                Notify();
+            } } finally { testing = null; }
+            var passed = QualityChecks.Count(x => x.State == "passed"); var unsupported = QualityChecks.Count(x => x.State == "unsupported"); var failed = QualityChecks.Count(x => x.State == "failed");
+            var warnings = QualityChecks.Count(x => x.State == "warning");
+            Message = (cancellation.IsCancellationRequested ? "检测已停止：" : "能力画像完成：") + passed + " 项通过" + (unsupported > 0 ? "，" + unsupported + " 项未观察到" : "") + (warnings > 0 ? "，" + warnings + " 项待核实" : "") + (failed > 0 ? "，" + failed + " 项失败" : "") + (Environment.Demo ? " · 演示模式未产生费用" : " · 已发起 " + billable + " 次请求");
+        }
+        private void SkipPendingQuality() { foreach (var remaining in QualityChecks.Where(x => x.State == "pending" || x.State == "running")) { remaining.State = "skipped"; remaining.Result = "已跳过"; remaining.Detail = "检测已停止，未继续发送请求。"; } }
+        private static List<ModelQualityCheck> NewQualityChecks()
+        {
+            var checks = new List<ModelQualityCheck> {
+                new ModelQualityCheck{Key="protocol",Title="模型与协议发现",Category="基础"},
+                new ModelQualityCheck{Key="connectivity",Title="响应与指令遵循",Category="基础"},
+                new ModelQualityCheck{Key="vision",Title="图片输入 / OCR",Category="多模态"},
+                new ModelQualityCheck{Key="tools_auto",Title="工具调用（auto）",Category="工具"},
+                new ModelQualityCheck{Key="tools_schema",Title="工具调用标准",Category="工具"},
+                new ModelQualityCheck{Key="tools_forced",Title="指定工具选择",Category="工具"},
+                new ModelQualityCheck{Key="tools_roundtrip",Title="工具结果回灌",Category="工具"},
+                new ModelQualityCheck{Key="thinking_off",Title="关闭思考",Category="思考"},
+                new ModelQualityCheck{Key="thinking_on",Title="打开思考",Category="思考"}
+            };
+            foreach (var effort in new[] { "minimal", "low", "medium", "high", "xhigh", "max" }) checks.Add(new ModelQualityCheck { Key = "effort_" + effort, Title = "思考强度 · " + effort, Category = "思考强度" });
+            return checks;
+        }
+        private static string UiProtocol(string protocol) => protocol == "responses" ? "Responses API" : protocol == "anthropic_messages" ? "Anthropic Messages" : "Chat Completions";
     }
 }

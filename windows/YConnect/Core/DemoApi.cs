@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 using Newtonsoft.Json.Linq;
 
 namespace YConnect.Core
@@ -11,20 +12,29 @@ namespace YConnect.Core
         public const string Key = "yc-demo-only-not-a-real-business-key-7392";
         public static readonly AvailableModel[] Models =
         {
-            new AvailableModel{Id="claude-sonnet-4-6",Name="Claude Sonnet 4.6",Protocols=new[]{"anthropic_messages","chat_completions"}},
-            new AvailableModel{Id="gpt-5.4",Name="GPT-5.4",Protocols=new[]{"responses","chat_completions"}},
-            new AvailableModel{Id="grok-4",Name="Grok 4",Protocols=YakCoolApi.Protocols},
-            new AvailableModel{Id="deepseek-v3.2",Name="DeepSeek V3.2",Protocols=new[]{"chat_completions"}},
-            new AvailableModel{Id="claude-opus-4-6",Name="Claude Opus 4.6",Protocols=new[]{"anthropic_messages"}},
-            new AvailableModel{Id="qwen3-coder",Name="Qwen3 Coder",Protocols=new[]{"chat_completions"}},
+            new AvailableModel{Id="claude-sonnet-4-6",Name="Claude Sonnet 4.6",Protocols=YakCoolApi.Protocols,ReportedProtocols=new[]{"anthropic_messages","chat_completions"}},
+            new AvailableModel{Id="gpt-5.4",Name="GPT-5.4",Protocols=YakCoolApi.Protocols,ReportedProtocols=new[]{"responses","chat_completions"}},
+            new AvailableModel{Id="grok-4",Name="Grok 4",Protocols=YakCoolApi.Protocols,ReportedProtocols=YakCoolApi.Protocols},
+            new AvailableModel{Id="deepseek-v3.2",Name="DeepSeek V3.2",Protocols=YakCoolApi.Protocols,ReportedProtocols=new[]{"chat_completions"}},
+            new AvailableModel{Id="claude-opus-4-6",Name="Claude Opus 4.6",Protocols=YakCoolApi.Protocols,ReportedProtocols=new[]{"anthropic_messages"}},
+            new AvailableModel{Id="qwen3-coder",Name="Qwen3 Coder",Protocols=YakCoolApi.Protocols,ReportedProtocols=new[]{"chat_completions"}},
         };
         private readonly JArray keys = new JArray(
             new JObject { ["id"] = 1, ["label"] = "日常开发", ["api_key"] = Key, ["last4"] = "7392", ["active"] = true, ["status"] = "active", ["token_limit_enable"] = false, ["usage_count"] = 128, ["created_at"] = "2026-09-01" },
             new JObject { ["id"] = 2, ["label"] = "自动化测试", ["api_key"] = "yc-demo-only-not-a-real-key-2086", ["last4"] = "2086", ["active"] = true, ["status"] = "active", ["token_limit_enable"] = true, ["usage_count"] = 24, ["created_at"] = "2026-09-02" });
         private double remaining = 128.6;
+        public JObject PaymentOrder { get; private set; }
+        public int PaymentCreates { get; private set; }
+        public void CompleteDemoPayment()
+        {
+            if (PaymentOrder == null || PaymentOrder.Text("status") == "paid") return;
+            remaining += (long)PaymentOrder["amount_cents"] / 100d;
+            PaymentOrder["status"] = "paid"; PaymentOrder["verification_status"] = "verified";
+        }
         private JObject User => new JObject { ["id"] = 1, ["display_name"] = "示例账户", ["avatar_url"] = "", ["public_uuid"] = "demo-public-user" };
         public Task<JObject> Get(string path, string key = null, string cookie = null)
         {
+            if (path.StartsWith("/api/payments/orders/") && PaymentOrder != null && path.EndsWith("/" + PaymentOrder.Text("order_no"))) return Task.FromResult((JObject)PaymentOrder.DeepClone());
             JObject result;
             switch (path)
             {
@@ -36,14 +46,20 @@ namespace YConnect.Core
                 case "/api/user/models": result = new JObject { ["models"] = new JArray(Models.Select(m => new JObject { ["model_id"] = m.Id, ["display_name"] = m.Name, ["provider"] = m.Id.Split('-')[0], ["summary"] = "用于界面和协议验证的示例模型" })) }; break;
                 case "/api/key/info":
                     if (key == null || !key.StartsWith("yc-demo-")) throw new InvalidOperationException("演示模式请使用 yc-demo 开头的测试 Key");
-                    result = new JObject { ["schema_version"] = 1, ["key"] = new JObject { ["label"] = "演示 API Key", ["last4"] = key.Substring(key.Length - 4), ["status"] = "active" }, ["quota"] = new JObject { ["mode"] = "shared_account", ["follows_account"] = true, ["approximate"] = true, ["remaining_percent_approx"] = 80, ["used_percent_approx"] = 20, ["display"] = "跟随主余额，剩余约 80%" } }; break;
-                case "/api/key/models": result = new JObject { ["schema_version"] = 1, ["data"] = new JArray(Models.Select(m => new JObject { ["id"] = m.Id, ["name"] = m.Name, ["protocols"] = new JArray(m.Protocols) })) }; break;
+                    result = new JObject { ["schema_version"] = 1, ["key"] = new JObject { ["label"] = "演示 API Key", ["last4"] = key.Substring(key.Length - 4), ["status"] = "enabled" }, ["quota"] = new JObject { ["mode"] = "shared_account", ["follows_account"] = true, ["approximate"] = true, ["remaining_percent_approx"] = 80, ["used_percent_approx"] = 20, ["display"] = "跟随主余额，剩余约 80%" } }; break;
+                case "/api/key/models": result = new JObject { ["schema_version"] = 1, ["data"] = new JArray(Models.Select(m => new JObject { ["id"] = m.Id, ["name"] = m.Name, ["protocols"] = new JArray(m.ReportedProtocols) })) }; break;
                 default: throw new InvalidOperationException("未知演示接口");
             }
             return Task.FromResult(result);
         }
         public Task<JObject> Send(string path, string method, JObject body, string cookie)
         {
+            if (path == "/api/payments/orders" && method == "POST")
+            {
+                PaymentCreates++;
+                PaymentOrder = new JObject { ["order_no"] = "YC20260906000000DEMO" + PaymentCreates, ["amount_cents"] = body["amount_cents"].DeepClone(), ["status"] = "pending", ["verification_status"] = "" };
+                return Task.FromResult(new JObject { ["order_no"] = PaymentOrder["order_no"].DeepClone(), ["channel"] = body["channel"].DeepClone(), ["code_url"] = "https://yakcool.com/#yconnect-demo-no-payment" });
+            }
             if (path == "/api/user/api-keys" && method == "POST")
             {
                 var record = new JObject { ["id"] = DateTime.UtcNow.Ticks, ["label"] = body.Text("label"), ["api_key"] = "yc-demo-created-key-5861", ["last4"] = "5861", ["active"] = true, ["status"] = "active", ["created_at"] = DateTime.Today.ToString("yyyy-MM-dd") }; keys.Add(record); return Task.FromResult(new JObject { ["key"] = record.DeepClone() });
@@ -52,6 +68,10 @@ namespace YConnect.Core
             if (path == "/api/user/redeem") { remaining += 10; return Task.FromResult(new JObject { ["status"] = "applied", ["amount_cents"] = 1000 }); }
             return Task.FromResult(new JObject { ["status"] = "ok" });
         }
-        public Task<string> Probe(string key, string model, string protocol) => Task.FromResult("OK（本地模拟响应，未调用模型）");
+        public Task<ModelProbeResult> Probe(string key, string model, string protocol, string check, CancellationToken cancellation = default)
+        {
+            var unsupported = check == "vision";
+            return Task.FromResult(new ModelProbeResult { Status = unsupported ? "unsupported" : "passed", Result = unsupported ? "未识别探测图" : check.StartsWith("effort_") ? "已接受 " + check.Substring(7) : check == "thinking_on" ? "返回可见思考" : check == "thinking_off" ? "关闭后无思考内容" : check.StartsWith("tools_") ? "工具能力可用" : "可访问 · 指令准确", Detail = "本地演示结果，未调用付费模型。", Output = "YCONNECT_OK", Reasoning = check == "thinking_on" ? "演示思考" : "", ToolCalls = check.StartsWith("tools_") ? 1 : 0, ToolSchemaValid = check.StartsWith("tools_"), Milliseconds = 42 });
+        }
     }
 }

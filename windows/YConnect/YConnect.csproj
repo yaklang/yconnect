@@ -20,14 +20,19 @@
     <Reference Include="System.Security" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="Tomlyn" Version="0.17.0" />
     <PackageReference Include="YamlDotNet" Version="13.7.1" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CredentialReader\CredentialReader.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Launcher\Launcher.csproj" ReferenceOutputAssembly="false" />
     <EmbeddedResource Include="..\CredentialReader\bin\$(Configuration)\net48\YConnect.CredentialReader.exe" LogicalName="YConnect.CredentialReader.exe" />
   </ItemGroup>
+  <Target Name="CopyLauncher" AfterTargets="Build">
+    <Copy SourceFiles="..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe;..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe.config" DestinationFolder="$(OutDir)" />
+  </Target>
   <Target Name="GenerateNativeIcon" BeforeTargets="CoreCompile" Condition="!Exists('..\Assets\yconnect.ico')">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\generate-icon.ps1&quot;" />
   </Target>

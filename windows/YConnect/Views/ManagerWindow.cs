@@ -24,6 +24,7 @@ namespace YConnect.Views
         private readonly StackPanel statusBar = Ui.Row();
         private readonly ConnectionPanel overviewConnection;
         private string section = "overview", search = "", protocolFilter = "all";
+        private string launchDirectory, launchTerminal, probeModelId, probeProtocolId;
         private bool rendering;
         public string Section => section;
         public bool SidebarCollapsed => controller.Store.Preferences.SidebarCollapsed;
@@ -67,7 +68,7 @@ namespace YConnect.Views
             if (collapsed) { sidebarBrand.Children.Add(Ui.Logo(32)); sidebarBrand.Children.Add(Ui.Gap(10)); sidebarBrand.Children.Add(toggle); }
             else sidebarBrand.Children.Add(Ui.Between(Ui.IconLabel(Ui.Logo(30), Ui.Stack(Ui.Label("YConnect", 17, "Ink", true), Ui.Gap(3), Ui.Label("桌面连接", 10, "Muted")), 30, 9), toggle));
             sidebarBrand.Children.Add(Ui.Gap(collapsed ? 12 : 24));
-            var navs = new[] { ("overview", "账户概览", "\uE80F"), ("keys", "API Keys", "\uE8D7"), ("clients", "客户端适配", "\uE8A5"), ("models", "模型目录", "\uE7F4"), ("checks", "连接测试", "\uE9D9"), ("settings", "设置", "\uE713") };
+            var navs = new[] { ("overview", "账户概览", "\uE80F"), ("keys", "API Keys", "\uE8D7"), ("clients", "客户端启动器", "\uE8A5"), ("models", "模型目录", "\uE7F4"), ("checks", "连接测试", "\uE9D9"), ("settings", "设置", "\uE713") };
             foreach (var item in navs)
             {
                 var destination = item.Item1; var selected = destination == section;
@@ -88,11 +89,12 @@ namespace YConnect.Views
             rendering = true; var store = controller.Store; RenderSidebar(); top.Children.Clear();
             var names = new System.Collections.Generic.Dictionary<string, (string, string)> {
                 ["overview"] = ("账户概览", "你的额度、使用情况与常用连接，一目了然。"), ["keys"] = ("API Keys", "为不同用途分配 Key，让每一次接入清晰可控。"),
-                ["clients"] = ("客户端适配", "选择已安装的工具，预览后安全接入 YakCool。"), ["models"] = ("模型目录", "找到适合当前任务的模型，按真实协议能力选择。"),
+                ["clients"] = ("客户端启动器", "选好模型与工作目录，在新的终端里开始。"), ["models"] = ("模型目录", "找到适合当前任务的模型，按真实协议能力选择。"),
                 ["checks"] = ("连接测试", "从服务到模型，轻松找到连接中的问题。"), ["settings"] = ("设置", "按照你的习惯，调整桌面连接体验。") };
             var name = names.ContainsKey(section) ? names[section] : names["overview"];
             statusBar.Children.Clear(); if (store.Environment.Demo) statusBar.Children.Add(Ui.Badge("演示数据", "Accent", "AccentSoft"));
-            var sync = Ui.Text(store.Busy ? "正在同步…" : store.LastRefresh.HasValue ? "● 已同步 " + store.LastRefresh.Value.ToString("HH:mm") : "等待连接", 10, store.Authenticated ? "Green" : "Muted"); sync.Margin = new Thickness(12, 0, 0, 0); sync.VerticalAlignment = VerticalAlignment.Center; statusBar.Children.Add(sync);
+            var sync = Ui.Text(store.Busy ? "正在检测…" : store.LastRefresh.HasValue ? "● 已同步 " + store.LastRefresh.Value.ToString("HH:mm") : "等待连接", 10, store.Authenticated ? "Green" : "Muted"); sync.Margin = new Thickness(12, 0, 0, 0); sync.VerticalAlignment = VerticalAlignment.Center; statusBar.Children.Add(sync);
+            var globalRecharge = Ui.SmallButton("充值  ↗", "manager-recharge", controller.OpenRecharge, "Primary"); globalRecharge.Margin = new Thickness(12, 0, 0, 0); statusBar.Children.Add(globalRecharge);
             top.Children.Add(Ui.Stack(Ui.Id(Ui.Text(name.Item1, 24, "Ink", true), "manager-page-title"), Ui.Gap(6), Ui.Text(name.Item2, 12, "Muted")));
 
             if (Ui.HasFeedback(store)) { top.Children.Add(Ui.Gap(12)); top.Children.Add(Ui.Feedback(store)); }
@@ -104,7 +106,7 @@ namespace YConnect.Views
             var store = controller.Store;
             if (!store.Authenticated) return OverviewLogin();
             var balance = BalancePresentation.From(store); var summary = store.Dashboard?["account_summary"];
-            var balanceActions = Ui.Row(Ui.Badge("● 已连接"));
+            var balanceActions = Ui.Row(Ui.Badge("● 已连接"), new Border { Width = 8 }, Ui.SmallButton("充值余额  ↗", "overview-recharge", controller.OpenRecharge, "Primary"));
             var hero = Ui.Card(Ui.Stack(Ui.Between(Ui.Label(balance.Label, 12, "Muted"), balanceActions), Ui.Gap(6), Ui.FitText(balance.Value, 32), Ui.Gap(10), Ui.QuotaBar(balance.Percent, 3)), 14, "AccentSoft");
             var metrics = Ui.Columns(3, hero, Metric("API Keys", store.Mode == "account" ? store.Keys.Count + " / " + store.Dashboard.Number("api_key_limit", 20) : "1", "当前可用凭证"), Metric("可用模型", store.Models.Count.ToString(), "按当前 Key 同步"));
             foreach (var item in metrics.Children.OfType<FrameworkElement>()) item.Margin = new Thickness(item.Margin.Left, 0, item.Margin.Right, 0);
@@ -193,17 +195,16 @@ namespace YConnect.Views
             {
                 var id = d.Id; var b = Ui.Button("", "client-select-" + id, () => store.SelectClient(id), "ActionRow"); b.Height = 48; b.Padding = new Thickness(8, 6, 8, 6); b.Margin = new Thickness(0, 0, 0, 4); b.ToolTip = d.Name;
                 b.Background = id == store.Preferences.SelectedClient ? Ui.Brush("AccentSoft") : Brushes.Transparent;
-                b.Content = Ui.IconLabel(Ui.AppMark(d, 28), Ui.Stack(Ui.Label(d.Name, 12, "Ink", true), Ui.Gap(3), Ui.Label(Ui.Status(store.Clients.Inspect(id)), 10, "Muted")), 28, 10); list.Children.Add(b);
+                b.Content = Ui.IconLabel(Ui.AppMark(d, 28), Ui.Stack(Ui.Label(d.Name, 12, "Ink", true), Ui.Gap(3), Ui.Label(ClientLauncher.CanAutoStart(id) ? "终端会话" : Ui.Status(store.Clients.Inspect(id)), 10, "Muted")), 28, 10); list.Children.Add(b);
             }
             var listCard = Ui.Card(list, 8, "SurfaceAlt"); listCard.Margin = new Thickness(0, 0, 12, 0); listCard.VerticalAlignment = VerticalAlignment.Top; grid.Children.Add(listCard);
             var selected = store.Clients.Get(store.Preferences.SelectedClient); var status = store.Clients.Inspect(selected.Id); var compatible = selected.Compatible(store.Models).ToArray();
-            var detail = Ui.Stack(Ui.Between(Ui.IconLabel(Ui.AppMark(selected, 40), Ui.Stack(Ui.Label(selected.Name, 21, "Ink", true), Ui.Gap(4), Ui.Label(selected.Description, 11, "Muted")), 40, 12), Ui.Badge(selected.Bridge ? "需协议桥" : Ui.Status(status), status.State == "configured" ? "Green" : "Muted", status.State == "configured" ? "GreenSoft" : "SurfaceAlt")), Ui.Gap(16));
+            var ready = ClientLauncher.CanAutoStart(selected.Id) && store.CurrentKey != null && compatible.Length > 0;
+            var detail = Ui.Stack(Ui.Between(Ui.IconLabel(Ui.AppMark(selected, 40), Ui.Stack(Ui.Label(selected.Name, 21, "Ink", true), Ui.Gap(4), Ui.Label(selected.Description, 11, "Muted")), 40, 12), Ui.Badge(selected.Bridge ? "需协议桥" : ready ? "可启动" : Ui.Status(status), ready || status.State == "configured" ? "Green" : "Muted", ready || status.State == "configured" ? "GreenSoft" : "SurfaceAlt")), Ui.Gap(16));
             if (selected.Bridge) detail.Children.Add(Ui.Notice("Gemini CLI 使用原生 generateContent 协议。当前网关尚无该协议桥，因此这里不会生成不兼容的配置。"));
             else
             {
                 detail.Children.Add(Ui.Text("原生协议", 11, "Muted", true)); detail.Children.Add(Ui.Gap(8)); detail.Children.Add(Ui.Text(string.Join("  /  ", selected.Protocols.Select(Ui.Protocol)), 12)); detail.Children.Add(Ui.Gap(14));
-                detail.Children.Add(Ui.Text("配置位置", 11, "Muted", true)); detail.Children.Add(Ui.Gap(8)); foreach (var file in store.Clients.Paths(selected.Id)) { var text = Ui.Selectable(file, 11); detail.Children.Add(Ui.Card(Ui.Between(text, Ui.SmallButton(controller.CopyLabel("path:" + file, "复制"), "client-copy-path-" + Array.IndexOf(store.Clients.Paths(selected.Id), file), () => controller.CopyText(file, "path:" + file))), 10, "SurfaceAlt")); detail.Children.Add(Ui.Gap(7)); }
-                detail.Children.Add(Ui.Gap(14));
                 FrameworkElement keySelection;
                 if (store.Mode == "account")
                 {
@@ -215,13 +216,47 @@ namespace YConnect.Views
                 var combo = Ui.Id(new ComboBox { ItemsSource = compatible, SelectedItem = compatible.FirstOrDefault(m => m.Id == store.SelectedModel) }, "client-model"); combo.SelectionChanged += (s, e) => { if (!rendering && combo.SelectedItem is AvailableModel model) store.SelectModel(model.Id); };
                 detail.Children.Add(Ui.Columns(2, Ui.Stack(Ui.Text("使用的 API Key", 11, "Muted", true), Ui.Gap(8), keySelection), Ui.Stack(Ui.Text("默认模型", 11, "Muted", true), Ui.Gap(8), combo)));
                 detail.Children.Add(Ui.Text(compatible.Length > 0 ? compatible.Length + " 个模型支持此客户端所需的协议" : "当前没有兼容模型，请先连接有效 Key 并刷新。", 11, "Muted")); detail.Children.Add(Ui.Gap(14));
-                var preview = Ui.AsyncButton("预览并应用配置  →", "client-preview", PreviewConfiguration, "Primary"); preview.IsEnabled = !store.Busy && compatible.Length > 0 && !string.IsNullOrEmpty(store.CurrentKey); detail.Children.Add(preview); detail.Children.Add(Ui.Gap(10));
-                var restore = Ui.AsyncButton("恢复最近备份", "client-restore", async () => { if (controller.Confirm("恢复最近备份？", "将恢复“" + selected.Name + "”应用 YakCool 之前的配置。检测到外部修改时会停止恢复。", "恢复配置")) await store.Run(() => store.RestoreConfiguration(selected.Id)); }); restore.IsEnabled = status.HasBackup && !store.Busy; detail.Children.Add(restore);
-                detail.Children.Add(Ui.Gap(14)); detail.Children.Add(Ui.Notice("写入前保存加密备份；凭证由专用文件和 Windows 权限保护。应用后请重启目标客户端。"));
+                if (ClientLauncher.Supported(selected.Id)) { detail.Children.Add(LauncherPanel(selected)); detail.Children.Add(Ui.Gap(12)); }
+                var config = Ui.Stack(Ui.Text("让之后从桌面或命令行打开的客户端也使用 YakCool。", 11, "Muted"), Ui.Gap(8));
+                foreach (var file in store.Clients.Paths(selected.Id)) { var text = Ui.Selectable(file, 10); config.Children.Add(Ui.Card(Ui.Between(text, Ui.SmallButton(controller.CopyLabel("path:" + file, "复制"), "client-copy-path-" + Array.IndexOf(store.Clients.Paths(selected.Id), file), () => controller.CopyText(file, "path:" + file))), 10, "SurfaceAlt")); config.Children.Add(Ui.Gap(6)); }
+                var preview = Ui.AsyncButton("预览并应用配置  →", "client-preview", PreviewConfiguration); preview.IsEnabled = !store.Busy && compatible.Length > 0 && !string.IsNullOrEmpty(store.CurrentKey); config.Children.Add(preview); config.Children.Add(Ui.Gap(8));
+                var restore = Ui.AsyncButton("恢复最近备份", "client-restore", async () => { if (controller.Confirm("恢复最近备份？", "将恢复“" + selected.Name + "”应用 YakCool 之前的配置。检测到外部修改时会停止恢复。", "恢复配置")) await store.Run(() => store.RestoreConfiguration(selected.Id)); }); restore.IsEnabled = status.HasBackup && !store.Busy; config.Children.Add(restore);
+                config.Children.Add(Ui.Gap(8)); config.Children.Add(Ui.Text("预览确认后备份并写入；重启客户端生效。", 10, "Muted"));
+                detail.Children.Add(Ui.Id(new Expander { Header = Ui.Text("固定配置与备份", 12, "Ink", true), Content = new Border { Child = config, Padding = new Thickness(0, 10, 0, 0) }, IsExpanded = !ClientLauncher.Supported(selected.Id) }, "client-config-expand"));
                 if (store.Environment.Development) { detail.Children.Add(Ui.Gap(8)); detail.Children.Add(Ui.Text("体验预览 · 仅写入隔离目录", 10, "Muted")); }
             }
             var box = Ui.Card(detail, 16); box.VerticalAlignment = VerticalAlignment.Top; Grid.SetColumn(box, 1); grid.Children.Add(box); return grid;
         }
+        private FrameworkElement LauncherPanel(ClientDescriptor client)
+        {
+            var store = controller.Store;
+            var folder = Ui.Id(new TextBox { Text = launchDirectory ?? store.Preferences.LaunchDirectory ?? System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), FontSize = 11, IsEnabled = !store.Busy }, "launch-directory");
+            folder.TextChanged += (s, e) => launchDirectory = folder.Text;
+            var browse = Ui.Button("选择目录", "launch-browse", () => { using (var picker = new System.Windows.Forms.FolderBrowserDialog { Description = "选择客户端的工作目录", SelectedPath = System.IO.Directory.Exists(folder.Text) ? folder.Text : "", ShowNewFolderButton = true }) if (picker.ShowDialog(new NativeOwner(new System.Windows.Interop.WindowInteropHelper(this).Handle)) == System.Windows.Forms.DialogResult.OK) folder.Text = picker.SelectedPath; }); browse.Margin = new Thickness(8, 0, 0, 0); browse.IsEnabled = !store.Busy;
+            var choices = new[] { new ProtocolChoice { Id = "terminal", Label = "Windows Terminal" }, new ProtocolChoice { Id = "powershell", Label = "PowerShell" }, new ProtocolChoice { Id = "cmd", Label = "CMD" } };
+            var terminal = Ui.Id(new ComboBox { ItemsSource = choices, SelectedItem = choices.FirstOrDefault(x => x.Id == (launchTerminal ?? store.Preferences.LaunchTerminal)) ?? choices[0], IsEnabled = !store.Busy }, "launch-terminal");
+            terminal.SelectionChanged += (s, e) => { if (terminal.SelectedItem is ProtocolChoice item) launchTerminal = item.Id; };
+            var start = Ui.AsyncButton("启动新会话  ↗", "client-launch", async () => await controller.LaunchClient(folder.Text, ((ProtocolChoice)terminal.SelectedItem).Id, true), "Primary");
+            start.IsEnabled = !store.Busy && store.CurrentKey != null && !string.IsNullOrEmpty(store.SelectedModel) && ClientLauncher.CanAutoStart(client.Id);
+            var shell = Ui.AsyncButton("仅打开专用终端", "client-terminal", async () => await controller.LaunchClient(folder.Text, ((ProtocolChoice)terminal.SelectedItem).Id, false)); shell.IsEnabled = !store.Busy && store.CurrentKey != null && !string.IsNullOrEmpty(store.SelectedModel);
+            var content = Ui.Stack(Ui.Between(Ui.Text("独立启动", 15, "Ink", true), Ui.Badge("支持多开", "Green", "GreenSoft")), Ui.Gap(5), Ui.Text("每次点击新开一个独立会话；Key、模型与目录互不干扰。", 11, "Muted"), Ui.Gap(10), Ui.Text("工作目录", 11, "Muted", true), Ui.Gap(6), Ui.Between(folder, browse), Ui.Gap(8), Ui.Columns(2, terminal, start), Ui.Gap(8), shell, Ui.Gap(7), Ui.Text(client.Id == "openclaw" ? "OpenClaw 将准备独立配置与状态目录。终端中使用 openclaw 命令按需运行本地 agent 或网关。" : client.Id == "grok-build" || client.Id == "pi" || client.Id == "hermes" ? "使用独立客户端目录，保留会话记录；不会改写原有插件、配置或登录。" : "退出客户端后终端保持打开，输入 yconnect 可再次启动。", 10, "Muted"));
+            var recent = controller.Launches.Attempts.Take(4).ToArray();
+            if (recent.Length > 0)
+            {
+                content.Children.Add(Ui.Gap(10)); content.Children.Add(Ui.Text("最近启动 · 彼此独立", 11, "Muted", true));
+                foreach (var attempt in recent)
+                {
+                    var pending = attempt.State == "pending"; var ready = attempt.State == "ready";
+                    var status = pending ? "准备中" : ready ? "已启动" : attempt.State == "unconfirmed" ? "未确认" : "未启动";
+                    var label = Ui.Text(attempt.Created.ToString("HH:mm:ss") + " · " + attempt.Client + " · " + attempt.Model, 11, "Ink", true);
+                    FrameworkElement action = pending ? (FrameworkElement)Ui.SmallButton("停止等待", "launch-stop-" + attempt.Id, () => controller.Launches.StopWaiting(attempt.Id)) : Ui.Badge(status, ready ? "Green" : "Muted", ready ? "GreenSoft" : "SurfaceAlt");
+                    var row = Ui.Card(Ui.Stack(Ui.Between(label, action), Ui.Gap(4), Ui.Text(pending ? "准备中 · 可继续打开新会话" : attempt.Detail, 10, "Muted")), 8);
+                    row.ToolTip = attempt.Directory; row.Margin = new Thickness(0, 6, 0, 0); content.Children.Add(row);
+                }
+            }
+            return Ui.Card(content, 12, "SurfaceAlt");
+        }
+        private sealed class NativeOwner : System.Windows.Forms.IWin32Window { public IntPtr Handle { get; } public NativeOwner(IntPtr handle) { Handle = handle; } }
         private async Task PreviewConfiguration()
         {
             var store = controller.Store; ConfigurationPlan plan = null;
@@ -250,7 +285,7 @@ namespace YConnect.Views
                 foreach (var model in filtered)
                 {
                     var m = model; var copy = Ui.Button("复制接入信息", "model-copy-" + m.Id, () => controller.CopyAccess(m.Id)); copy.FontSize = 11; copy.IsEnabled = !string.IsNullOrEmpty(store.CurrentKey);
-                    var entry = Ui.Stack(Ui.Between(Ui.Stack(Ui.Text(m.Name, 16, "Ink", true), Ui.Gap(5), Ui.Text(m.Id, 11, "Muted")), copy), Ui.Gap(14), Ui.Text(string.Join("   ·   ", m.Protocols.Select(Ui.Protocol)), 11, "Accent")); var card = Ui.Card(entry, 19); card.Margin = new Thickness(0, 0, 0, 12); results.Children.Add(card);
+                    var entry = Ui.Stack(Ui.Between(Ui.Stack(Ui.Text(m.Name, 16, "Ink", true), Ui.Gap(5), Ui.Text(m.Id, 11, "Muted")), copy), Ui.Gap(11), Ui.Text(string.Join("   ·   ", m.Protocols.Select(Ui.Protocol)), 11, "Accent"), Ui.Gap(5), Ui.Text("网关入口支持转换 · 模型效果请在连接测试中验证", 10, "Muted")); var card = Ui.Card(entry, 16); card.Margin = new Thickness(0, 0, 0, 10); results.Children.Add(card);
                 }
                 if (filtered.Length == 0) results.Children.Add(Ui.Notice(store.Authenticated ? "没有匹配的模型。尝试其他关键词、协议或刷新当前 Key。" : "连接账户或 API Key 后查看可用模型。"));
             };
@@ -259,22 +294,59 @@ namespace YConnect.Views
             {
                 var selected = p; var b = Ui.Button(p == "all" ? "全部协议" : Ui.Protocol(p), "model-filter-" + p, () => { protocolFilter = selected; Render(); }, protocolFilter == p ? "Primary" : null); b.Margin = new Thickness(0, 0, 8, 8); b.FontSize = 11; filters.Children.Add(b);
             }
-            renderResults(); return Ui.Stack(Ui.Text("搜索名称或模型 ID", 11, "Muted"), Ui.Gap(8), input, Ui.Gap(10), filters, Ui.Gap(12), results);
+            renderResults(); return Ui.Stack(Ui.Notice("目录展示的是你实际可调用的网关协议；YakCool 会在入口协议与模型原生协议之间自动转换。"), Ui.Gap(10), Ui.Text("搜索名称或模型 ID", 11, "Muted"), Ui.Gap(8), input, Ui.Gap(10), filters, Ui.Gap(10), results);
         }
         private FrameworkElement ChecksPage()
         {
-            var store = controller.Store; var start = Ui.AsyncButton("开始基础检查", "checks-start", async () => await store.Run(store.CheckConnection), "Primary"); start.IsEnabled = !store.Busy;
-            var page = Ui.Stack(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("基础连接检查", 18, "Ink", true), Ui.Gap(7), Ui.Text("健康状态 → Key 权限 → 模型协议，不产生模型调用费用。", 12, "Muted")), start), 16), Ui.Gap(12));
+            var store = controller.Store; var start = Ui.AsyncButton("基础检查", "checks-start", async () => await store.Run(store.CheckConnection), "Primary"); start.IsEnabled = !store.Busy;
+            var page = Ui.Stack(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("连接与模型能力", 18, "Ink", true), Ui.Gap(5), Ui.Text("先免费检查服务与 Key，再按需生成真实模型能力画像。", 11, "Muted")), start), 14), Ui.Gap(10));
             var checks = store.Checks.Count > 0 ? store.Checks : new System.Collections.Generic.List<ServiceCheck> { new ServiceCheck { Title = "YakCool 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
-            foreach (var check in checks)
+            var basicCards = checks.Select(check =>
             {
-                var mark = check.State == "passed" ? "✓" : check.State == "failed" ? "!" : check.State == "running" ? "…" : "○"; var color = check.State == "passed" ? "Green" : check.State == "failed" ? "Danger" : "Muted";
-                var item = Ui.Card(Ui.Between(Ui.Row(Ui.Text(mark, 24, color, true), new Border { Width = 16 }, Ui.Stack(Ui.Text(check.Title, 14, "Ink", true), Ui.Gap(6), Ui.Text(check.Detail ?? (check.State == "running" ? "检查中…" : "等待检查"), 11, "Muted"))), Ui.Text(check.State == "passed" ? check.Milliseconds + " ms" : "", 11, "Muted")), 20); item.Margin = new Thickness(0, 0, 0, 10); page.Children.Add(item);
+                var mark = check.State == "passed" ? "✓" : check.State == "failed" || check.State == "warning" ? "!" : check.State == "running" ? "…" : check.State == "skipped" ? "↷" : "○"; var color = check.State == "passed" ? "Green" : check.State == "failed" ? "Danger" : check.State == "warning" ? "Accent" : "Muted";
+                return (UIElement)Ui.Card(Ui.Stack(Ui.Between(Ui.Row(Ui.Text(mark, 18, color, true), new Border { Width = 8 }, Ui.Text(check.Title, 12, "Ink", true)), Ui.Text(check.Milliseconds > 0 ? check.Milliseconds + " ms" : "", 10, "Muted")), Ui.Gap(5), Ui.Text(check.Detail ?? (check.State == "running" ? "检查中…" : "等待检查"), 10, "Muted")), 11);
+            }).ToArray();
+            page.Children.Add(Ui.AdaptiveColumns(3, 180, basicCards)); page.Children.Add(Ui.Gap(4));
+
+            var selectedModel = store.Models.FirstOrDefault(m => m.Id == probeModelId) ?? store.Models.FirstOrDefault(m => m.Id == store.Preferences.CurrentModel) ?? store.Models.FirstOrDefault();
+            var model = Ui.Id(new ComboBox { ItemsSource = store.Models, SelectedItem = selectedModel, MinHeight = 36, IsEnabled = !store.Busy }, "probe-model");
+            var protocol = Ui.Id(new ComboBox { MinHeight = 36, IsEnabled = !store.Busy }, "probe-protocol"); Action update = () => { var m = model.SelectedItem as AvailableModel; var choices = m?.Protocols.Where(YakCoolApi.Protocols.Contains).Select(p => new ProtocolChoice { Id = p, Label = Ui.Protocol(p) }).ToArray(); protocol.ItemsSource = choices; protocol.SelectedItem = choices?.FirstOrDefault(x => x.Id == probeProtocolId) ?? choices?.FirstOrDefault(); }; model.SelectionChanged += (s, e) => { probeModelId = (model.SelectedItem as AvailableModel)?.Id; update(); }; update();
+            protocol.SelectionChanged += (s, e) => { if (!rendering) probeProtocolId = (protocol.SelectedItem as ProtocolChoice)?.Id; };
+            var probe = Ui.AsyncButton("最小响应测试", "probe-submit", async () => { var m = model.SelectedItem as AvailableModel; var p = protocol.SelectedItem as ProtocolChoice; if (m != null && p != null && controller.Confirm("发送 1 次真实模型请求？", "将使用当前 Key 调用“" + m.Name + "”，检查响应速度与固定指令遵循，可能消耗少量额度。", "发送测试")) await store.Run(() => store.Probe(m.Id, p.Id, true)); }); probe.IsEnabled = store.Models.Count > 0 && !store.Busy;
+            var quality = Ui.AsyncButton("完整能力检测", "probe-quality", async () => { var m = model.SelectedItem as AvailableModel; var p = protocol.SelectedItem as ProtocolChoice; var cost = store.Environment.Demo ? "当前为演示模式，不会调用付费模型。" : "最多发起 13 次真实调用，可能消耗少量额度。"; if (m != null && p != null && controller.Confirm("运行完整模型能力检测？", "将使用当前 Key 对“" + m.Name + "”检测图片、工具调用、thinking 开关以及 minimal–max 思考强度。" + cost + "基础请求失败时会自动停止。", "开始检测")) await store.Run(() => store.ProbeQuality(m.Id, p.Id, true)); }, "Primary"); quality.IsEnabled = store.Models.Count > 0 && !store.Busy;
+            var selectors = Ui.Columns(2, model, protocol); var actions = Ui.Row(probe, new Border { Width = 8 }, quality);
+            if (store.CanCancelTest) actions.Children.Add(Ui.Button("停止检测", "probe-cancel", store.CancelTest));
+            page.Children.Add(Ui.Card(Ui.Stack(Ui.Between(Ui.Stack(Ui.Text("选择真实模型", 15, "Ink", true), Ui.Gap(4), Ui.Text("结果只代表当前模型、当前 Key 与所选入口协议。", 10, "Muted")), Ui.Badge(store.Environment.Demo ? "演示不产生费用" : "最多 13 次调用", "Accent", "AccentSoft")), Ui.Gap(10), selectors, Ui.Gap(8), actions), 14));
+
+            if (store.LastProbe != null)
+            {
+                var result = store.LastProbe; page.Children.Add(Ui.Gap(10));
+                page.Children.Add(QualityCard(new ModelQualityCheck { Title = "最小响应测试", Category = store.LastProbeModel + " · " + Ui.Protocol(store.LastProbeProtocol), State = result.Status, Result = result.Result, Detail = result.Detail, Output = result.Output, Reasoning = result.Reasoning, Milliseconds = result.Milliseconds }));
             }
-            page.Children.Add(Ui.Gap(12)); var model = Ui.Id(new ComboBox { ItemsSource = store.Models, SelectedIndex = store.Models.Count > 0 ? 0 : -1 }, "probe-model");
-            var protocol = Ui.Id(new ComboBox(), "probe-protocol"); Action update = () => { var m = model.SelectedItem as AvailableModel; protocol.ItemsSource = m?.Protocols.Where(YakCoolApi.Protocols.Contains).ToArray(); protocol.SelectedIndex = 0; }; model.SelectionChanged += (s, e) => update(); update();
-            var probe = Ui.AsyncButton("发送最小测试", "probe-submit", async () => { var m = model.SelectedItem as AvailableModel; var p = protocol.SelectedItem as string; if (m != null && p != null && controller.Confirm("发送真实模型请求？", "将使用当前 Key 调用“" + m.Name + "”，可能消耗额度。只发送固定文本：Reply exactly with OK.，输出上限为 8 tokens。", "发送测试")) await store.Run(() => store.Probe(m.Id, p, true)); }); probe.IsEnabled = store.Models.Count > 0 && !store.Busy;
-            page.Children.Add(Ui.Card(Ui.Stack(Ui.Text("真实模型调用", 17, "Ink", true), Ui.Gap(8), Ui.Text("可选 · 发送前会再次确认，可能消耗少量额度。", 11, "Muted"), Ui.Gap(12), model, Ui.Gap(10), protocol, Ui.Gap(14), probe), 16)); return page;
+
+            if (store.QualityChecks.Count > 0)
+            {
+                page.Children.Add(Ui.Gap(12));
+                var finished = store.QualityChecks.Count(x => new[] { "passed", "unsupported", "failed", "skipped", "warning" }.Contains(x.State));
+                var profileName = store.Models.FirstOrDefault(x => x.Id == store.QualityModel)?.Name ?? store.QualityModel;
+                page.Children.Add(Ui.Between(Ui.Stack(Ui.Text("模型能力画像", 16, "Ink", true), Ui.Gap(3), Ui.Text(profileName + " · " + Ui.Protocol(store.QualityProtocol), 10, "Muted")), Ui.Text(finished + " / " + store.QualityChecks.Count + " 项", 11, "Muted"))); page.Children.Add(Ui.Gap(8));
+                var cards = store.QualityChecks.Select(QualityCard).Cast<UIElement>().ToArray(); page.Children.Add(Ui.AdaptiveColumns(2, 260, cards));
+            }
+            return page;
+        }
+        private FrameworkElement QualityCard(ModelQualityCheck check)
+        {
+            var mark = check.State == "passed" ? "✓" : check.State == "unsupported" ? "–" : check.State == "failed" ? "!" : check.State == "running" ? "…" : check.State == "skipped" ? "↷" : "○";
+            var color = check.State == "passed" ? "Green" : check.State == "failed" ? "Danger" : check.State == "unsupported" || check.State == "warning" ? "Accent" : "Muted";
+            var result = string.IsNullOrEmpty(check.Result) ? (check.State == "running" ? "正在发起真实请求…" : "等待检测") : check.Result;
+            var card = Ui.Stack(Ui.Between(Ui.Row(Ui.Text(mark, 18, color, true), new Border { Width = 8 }, Ui.Stack(Ui.Text(check.Title, 12, "Ink", true), Ui.Gap(3), Ui.Text(check.Category, 9, "Muted"))), Ui.Text(check.Milliseconds > 0 ? check.Milliseconds + " ms" : "", 10, "Muted")), Ui.Gap(7), Ui.Text(result, 11, color, true));
+            if (!string.IsNullOrEmpty(check.Detail)) { card.Children.Add(Ui.Gap(4)); card.Children.Add(Ui.Text(check.Detail, 10, "Muted")); }
+            if (!string.IsNullOrEmpty(check.Output) || !string.IsNullOrEmpty(check.Reasoning))
+            {
+                var evidence = Ui.Stack(); if (!string.IsNullOrEmpty(check.Reasoning)) evidence.Children.Add(Ui.Text("Thinking\n" + check.Reasoning, 10, "Muted")); if (!string.IsNullOrEmpty(check.Output)) evidence.Children.Add(Ui.Text("Output\n" + check.Output, 10, "Muted"));
+                card.Children.Add(new Expander { Header = Ui.Text("查看响应证据", 10, "Accent"), Content = new Border { Child = evidence, Padding = new Thickness(0, 7, 0, 0) } });
+            }
+            return Ui.Card(card, 12);
         }
         private FrameworkElement SettingsPage()
         {
@@ -307,5 +379,6 @@ namespace YConnect.Views
             check.Click += (s, e) => { changed(check.IsChecked == true); controller.Store.SavePreferences(); }; return check;
         }
         private sealed class KeyChoice { public long Id; public string Label; public override string ToString() => Label; }
+        private sealed class ProtocolChoice { public string Id; public string Label; public override string ToString() => Label; }
     }
 }

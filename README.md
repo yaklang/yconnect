@@ -1,6 +1,6 @@
 # YConnect
 
-YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工具的本地端点适配中心。macOS 使用 Swift/AppKit，Windows 使用 C#/WPF。它常驻菜单栏或系统托盘并提供与 YTray 一致的屏幕边缘小组件，用于查看账户或 API Key 状态、管理 Key、执行基础连接测试，以及把不同本地客户端安全切换到 YakCool。
+YConnect 是 YakCool 的原生桌面客户端，也是一个面向 AI 编程工具的本地端点适配中心。macOS 使用 Swift/AppKit，Windows 使用 C#/WPF。它常驻菜单栏或系统托盘并提供与 YTray 一致的屏幕边缘小组件，用于查看账户或 API Key 状态、管理 Key、充值、生成模型能力画像，以及把不同本地客户端安全切换到 YakCool。
 
 > 当前版本：0.2.0 · macOS 14+；新增 Windows 10/11 x64 原生移植版
 
@@ -23,8 +23,8 @@ Windows 增加了不抢焦点的贴边余额速览、原生平滑拖动、可收
 - 两种认证模式：
   - **YakCool 账户**：在客户端内打开 YakCool 官方页面，通过微信扫码登录；可查看账户与额度、兑换、创建/复制/删除 API Key。
   - **API Key**：只查看当前 Key 的状态、额度和可用模型；不会获得账户管理权限。
-- 客户端适配中心：按目标客户端支持的原生协议筛选模型，写前备份，一键应用并支持恢复。
-- 基础测试：分层检查 YakCool 健康状态、Key 权限与模型列表；真实模型调用必须二次确认，并且只发送固定测试文本。
+- 客户端适配中心：按目标客户端支持的入口协议选择模型，优先生成匹配模型原生模式的配置，写前备份，一键应用并支持恢复。
+- 分层测试：免费检查 YakCool 健康状态、Key 权限与模型列表；最小真实响应和 15 项模型能力画像均须二次确认，完整画像覆盖图片、工具调用、thinking 开关与六档 reasoning effort。
 
 YakCool 当前没有面向 C 端的用户名/密码登录接口。员工后台登录与公开用户登录属于不同权限面，YConnect 不会混用；账户模式只接受公开用户会话 yakcool_user_session。
 
@@ -43,7 +43,7 @@ YConnect 不是只面向 OpenCode。0.2.0 提供 8 个独立、可写入、可�
 | OpenClaw | ~/.openclaw/openclaw.json | Responses → Messages → Chat | 官方 file SecretRef |
 | Hermes | ~/.hermes/config.yaml | Responses → Messages → Chat | 官方 key_cmd helper |
 
-箭头表示同一客户端对模型协议的选择优先级。YConnect 会读取当前业务 Key 的真实模型列表，再为所选客户端筛选兼容模型；不会把一个 Chat-only 模型错误写进 Responses 或 Messages 配置。
+箭头表示同一客户端对入口协议的选择优先级。YConnect 会读取当前业务 Key 的真实模型列表；模型目录展示 YakCool 网关可调用的三种入口，而支持多种传输的客户端会优先采用服务端报告的原生上游模式。AIBalance 负责入口协议与模型原生协议之间的转换。
 
 每个客户端都是单独的适配器，实现同一套边界：
 
