@@ -42,7 +42,7 @@ final class TOMLConfigurationEditorTests: XCTestCase {
         try editor.replaceManagedTable(
             named: "model_providers.yakcool",
             entries: [
-                TOMLConfigurationEntry("name", .string("YakCool")),
+                TOMLConfigurationEntry("name", .string("YAKCOOL")),
                 TOMLConfigurationEntry("base_url", .string("https://aibalance.yaklang.com/v1")),
                 TOMLConfigurationEntry("env_key", .string("YAKCOOL_API_KEY")),
                 TOMLConfigurationEntry("wire_api", .string("responses")),
@@ -112,7 +112,7 @@ final class TOMLConfigurationEditorTests: XCTestCase {
             entries: [
                 TOMLConfigurationEntry("model", .string("grok-4.6")),
                 TOMLConfigurationEntry("base_url", .string("https://aibalance.yaklang.com/v1")),
-                TOMLConfigurationEntry("name", .string("YakCool")),
+                TOMLConfigurationEntry("name", .string("YAKCOOL")),
                 TOMLConfigurationEntry("api_backend", .string("responses")),
                 TOMLConfigurationEntry("auth_provider", .string("yconnect")),
             ]

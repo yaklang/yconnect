@@ -175,7 +175,7 @@ namespace YConnect.Validation
                 Assert(Math.Abs(height - app.Widget.ActualHeight) <= 2, "copy feedback moved widget layout");
                 await Click(app.Widget, "widget-model-gpt-5.4"); Assert(Clipboard.GetText() == "gpt-5.4", "model copy exposed access info instead of model ID");
                 await Click(app.Widget, "widget-copy-access"); var access = Clipboard.GetText();
-                Assert(access.Contains("YConnect") && access.Contains("YakCool:") && access.Contains("gpt-5.4") && access.Contains(app.Store.CurrentKey) && AppController.Endpoints.All(e => access.Contains(e.Url)) && app.Store.Models.All(m => access.Contains(m.Name) && access.Contains(m.Id)), "access copy missing brand/models/key/endpoints");
+                Assert(access.Contains("Y CONNECT") && access.Contains("YAKCOOL:") && access.Contains("gpt-5.4") && access.Contains(app.Store.CurrentKey) && AppController.Endpoints.All(e => access.Contains(e.Url)) && app.Store.Models.All(m => access.Contains(m.Name) && access.Contains(m.Id)), "access copy missing brand/models/key/endpoints");
                 await Click(app.Widget, "widget-protocols"); Assert(app.Widget.ExpandedSection == "protocols", "protocol expansion");
                 Capture(app.Widget, "24-widget-protocols.png");
                 foreach (var endpoint in AppController.Endpoints) { await Click(app.Widget, "endpoint-" + endpoint.Id); Assert(Clipboard.GetText() == endpoint.Url, "endpoint copy included sensitive data"); }

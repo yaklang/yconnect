@@ -2,9 +2,17 @@ import AppKit
 import SwiftUI
 
 extension Brand {
-    // Muted terracotta keeps the YakCool warmth without reusing YTray's vivid orange.
-    static let accent = Color(red: 0.780, green: 0.416, blue: 0.333)
-    static let accentNS = NSColor(red: 0.780, green: 0.416, blue: 0.333, alpha: 1)
+    static let accent = Color(red: 184.0 / 255, green: 106.0 / 255, blue: 75.0 / 255)
+    static let accentNS = NSColor(red: 184.0 / 255, green: 106.0 / 255, blue: 75.0 / 255, alpha: 1)
+    static let widgetSurface = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.161, green: 0.161, blue: 0.157, alpha: 1) : .white
+    })
+    static let widgetSurfaceAlt = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.196, green: 0.196, blue: 0.188, alpha: 1)
+            : NSColor(red: 0.969, green: 0.961, blue: 0.945, alpha: 1)
+    })
     // The darker fill preserves readable white labels on primary controls.
     static let primaryFill = Color(red: 0.706, green: 0.365, blue: 0.294)
     static let primaryFillNS = NSColor(red: 0.706, green: 0.365, blue: 0.294, alpha: 1)
@@ -24,8 +32,8 @@ struct VisualEffect: NSViewRepresentable {
 }
 
 enum WidgetMetrics {
-    static let width: CGFloat = 390
-    static let cornerRadius: CGFloat = 18
+    static let width: CGFloat = 400
+    static let cornerRadius: CGFloat = 20
     static let collapsedBreathingRoom: CGFloat = 28
     static let signedOutAccountHeight: CGFloat = 380
     static let signedOutAPIKeyHeight: CGFloat = 420
@@ -54,7 +62,7 @@ enum WidgetMetrics {
         let hasExpandedSection = expandedURLs > 0 || expandedModels > 0
         let breathingRoom = hasExpandedSection ? 0 : collapsedBreathingRoom
         return base + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
-            + expandedURLs + expandedModels + quickModels + breathingRoom
+            + expandedURLs + expandedModels + quickModels + breathingRoom + (store.isAccountMode ? 150 : 75)
     }
 
     @MainActor
@@ -84,6 +92,7 @@ final class WidgetPresentationState: ObservableObject {
 
 enum ManagerSection: String, CaseIterable, Identifiable {
     case overview
+    case recharge
     case apiKeys
     case clients
     case diagnostics
@@ -93,6 +102,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .overview: return "账户概览"
+        case .recharge: return "账户充值"
         case .apiKeys: return "API Keys"
         case .clients: return "客户端适配"
         case .diagnostics: return "连接测试"
@@ -102,6 +112,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .overview: return "gauge.with.dots.needle.67percent"
+        case .recharge: return "creditcard"
         case .apiKeys: return "key.horizontal"
         case .clients: return "arrow.triangle.2.circlepath.circle"
         case .diagnostics: return "stethoscope"
@@ -124,7 +135,7 @@ final class ManagerNavigation: ObservableObject {
 }
 
 enum APIKeyLabelSuggestion {
-    private static let prefix = "YConnect-"
+    private static let prefix = "Y CONNECT-"
 
     static func next(existingLabels: [String]) -> String {
         let usedNumbers = Set(existingLabels.compactMap { label -> Int? in
@@ -216,8 +227,7 @@ struct WidgetView: View {
 
     var body: some View {
         ZStack {
-            VisualEffect()
-            Color(nsColor: .windowBackgroundColor).opacity(0.72)
+            Brand.widgetSurface
             if WidgetMetrics.requiresVerticalScrolling(for: store, presentation: presentation) {
                 ScrollView(.vertical, showsIndicators: true) {
                     widgetContent
@@ -230,7 +240,7 @@ struct WidgetView: View {
         .frame(width: WidgetMetrics.width, height: WidgetMetrics.height(for: store, presentation: presentation))
         .clipShape(RoundedRectangle(cornerRadius: WidgetMetrics.cornerRadius, style: .continuous))
         .tint(Brand.accent)
-        .alert("YConnect", isPresented: Binding(
+        .alert("Y CONNECT", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
         )) {
@@ -255,13 +265,9 @@ struct WidgetView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(Brand.accent.gradient)
-                Image(systemName: "link").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-            }
-            .frame(width: 30, height: 30)
+            BrandMark().fill(Brand.accent).frame(width: 34, height: 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text("YConnect").font(.system(size: 18, weight: .bold))
+                Text("Y CONNECT").font(.system(size: 18, weight: .bold))
                 Text(headerIdentitySummary)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -314,10 +320,10 @@ struct WidgetView: View {
                 loginCard(
                     symbol: "qrcode.viewfinder",
                     title: "微信扫码登录",
-                    detail: "在 YConnect 原生登录窗口内展示 YakCool 官方扫码页；登录成功后，会话加密保存在 macOS 钥匙串。"
+                    detail: "在 Y CONNECT 原生登录窗口内展示 YAKCOOL 官方扫码页；登录成功后，会话加密保存在 macOS 钥匙串。"
                 ) {
                     Button(action: beginAccountLogin) {
-                        Label("在 YConnect 内扫码", systemImage: "qrcode.viewfinder")
+                        Label("在 Y CONNECT 内扫码", systemImage: "qrcode.viewfinder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SmallPrimaryButtonStyle())
@@ -329,7 +335,7 @@ struct WidgetView: View {
                     detail: "仅查询这把 Key 的状态、近似额度和可用模型；不会获得账户管理权限。"
                 ) {
                     HStack(spacing: 7) {
-                        SecureField("粘贴 YakCool API Key", text: $apiKey)
+                        SecureField("粘贴 YAKCOOL API Key", text: $apiKey)
                             .textFieldStyle(.roundedBorder)
                             .controlSize(.large)
                             .frame(height: 30)
@@ -458,6 +464,9 @@ struct WidgetView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
 
+                Button { openManager(.settings) } label: {
+                    Image(systemName: "gearshape").frame(width: 28, height: 32)
+                }.buttonStyle(PlainHoverButtonStyle()).foregroundStyle(.secondary).help("设置")
                 Button { Task { await store.signOut() } } label: {
                     Label("登出", systemImage: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 11, weight: .medium))
@@ -481,32 +490,62 @@ struct WidgetView: View {
     }
 
     private var connectionStatusBanner: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "checkmark.shield.fill").foregroundStyle(Brand.green)
-            Text(store.isAccountMode ? "YakCool 账户已安全连接" : "API Key 已验证并安全连接")
-            Spacer()
-            if let quotaBadgeText {
-                Text(quotaBadgeText)
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(quotaBadgeIsLow ? Color.red : Brand.green)
-                    .padding(.horizontal, 7)
-                    .frame(height: 21)
-                    .background((quotaBadgeIsLow ? Color.red : Brand.green).opacity(0.10))
-                    .clipShape(Capsule())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(store.isAccountMode ? "账户已安全连接" : "Key 已安全连接", systemImage: "circle.fill")
+                    .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Brand.green)
+                Spacer()
+                if store.isAccountMode {
+                    Button { openManager(.recharge) } label: { Label("充值", systemImage: "arrow.up.right") }
+                        .buttonStyle(SmallPrimaryButtonStyle()).controlSize(.small)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(quotaBadgeText ?? "—")
+                    .font(.system(size: 29, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(quotaBadgeIsLow ? Color.red : Color.primary)
+                Text(store.isAccountMode ? "账户可用余额" : store.businessKeyInfo?.quota.metricTitle ?? "可用额度")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            GeometryReader { geometry in
+                Capsule().fill(Color.primary.opacity(0.07))
+                    .overlay(alignment: .leading) {
+                        if let fraction = balanceFraction {
+                            Capsule().fill(Brand.accent).frame(width: geometry.size.width * fraction)
+                        }
+                    }
+            }.frame(height: 3).accessibilityHidden(true)
+            if store.isAccountMode {
+                AccountSpendingView(store: store)
             }
         }
-        .font(.system(size: 11, weight: .semibold))
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(Brand.green.opacity(0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.green.opacity(0.16)))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.widgetSurfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: 13))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.primary.opacity(0.06)))
+    }
+
+    private var balanceFraction: CGFloat? {
+        if store.isAccountMode {
+            guard let credit = store.dashboard?.aiServiceCredit, let total = credit.tokenLimit,
+                  total > 0, let remaining = credit.tokenRemaining else { return nil }
+            return CGFloat(min(1, max(0, Double(remaining) / Double(total))))
+        }
+        guard let quota = store.businessKeyInfo?.quota else { return nil }
+        if let percentage = quota.remainingPercentApprox { return CGFloat(min(1, max(0, Double(percentage) / 100))) }
+        if let limit = quota.limitRMB.flatMap({ Decimal(string: $0) }), limit > 0,
+           let remaining = quota.remainingRMB.flatMap({ Decimal(string: $0) }) {
+            return CGFloat(min(1, max(0, NSDecimalNumber(decimal: remaining / limit).doubleValue)))
+        }
+        return nil
     }
 
     private var headerIdentitySummary: String {
         guard store.isAuthenticated else { return store.statusSummary }
         if store.isAccountMode {
-            return "\(store.userDisplayName) · YakCool 账户"
+            return "\(store.userDisplayName) · YAKCOOL 账户"
         }
         let mode = store.businessKeyInfo?.quota.modeDisplay ?? "API Key"
         return "\(store.userDisplayName) · \(mode)"
@@ -528,7 +567,8 @@ struct WidgetView: View {
             HStack {
                 Text("已安装客户端").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
-                Text("按最近使用排序").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+                Button("管理 ↗") { openManager(.clients) }.buttonStyle(.plain)
+                    .font(.system(size: 10.5)).foregroundStyle(Brand.accent)
             }
             if store.installedClientDescriptors.isEmpty {
                 Button { openManager(.clients) } label: {
@@ -546,16 +586,35 @@ struct WidgetView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                     ForEach(Array(store.installedClientDescriptors.prefix(store.installedClientDescriptors.count > 4 ? 3 : 4))) { client in
+                        HStack(spacing: 2) {
                         Button {
                             store.selectClientForManagement(client.id)
                             openManager(.clients)
                         } label: {
-                            Label("应用到 \(client.shortName)", systemImage: client.symbol)
-                                .frame(maxWidth: .infinity)
-                                .lineLimit(1)
+                            HStack(spacing: 7) {
+                                Image(systemName: client.symbol).font(.system(size: 13))
+                                    .foregroundStyle(Brand.accent).frame(width: 25, height: 25)
+                                    .background(Brand.accent.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 6))
+                                Text(client.shortName).font(.system(size: 11.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
+                                Spacer(minLength: 0)
+                            }.frame(maxWidth: .infinity, minHeight: 34)
                         }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(.plain)
                         .help("打开 \(client.name) 配置页")
+                        if ClientLauncher.canAutoStart(client.id) {
+                            Button {
+                                store.selectClientForManagement(client.id)
+                                Task { await store.launchSelectedClient() }
+                            } label: {
+                                Image(systemName: "play.fill").font(.system(size: 10)).frame(width: 26, height: 34)
+                            }.buttonStyle(PlainHoverButtonStyle()).foregroundStyle(Brand.accent)
+                                .disabled(store.isBusy || !store.hasUsableAPIKey)
+                                .help("在新终端启动 \(client.name)")
+                        }
+                        }.padding(.leading, 7).padding(.trailing, 3)
+                            .background(Brand.widgetSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.09)))
                     }
                     if store.installedClientDescriptors.count > 4 {
                         Button { openManager(.clients) } label: {
@@ -959,7 +1018,7 @@ struct WidgetView: View {
             result.append(model)
             if result.count == 3 { return result }
         }
-        // YakCool returns catalogued models in heat order; fill any missing
+        // YAKCOOL returns catalogued models in heat order; fill any missing
         // recent slots from that server-ranked popularity order.
         for model in availableAccessModels where seen.insert(model.id).inserted {
             result.append(model)
@@ -1079,24 +1138,56 @@ struct ManagerView: View {
     @State private var confirmLiveTest = false
     @FocusState private var newKeyLabelFocused: Bool
 
+    private var activeSection: ManagerSection {
+        let section = navigation.selectedSection
+        return section == .recharge && !store.isAccountMode ? .overview : section
+    }
+
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                HStack(spacing: 9) {
+                    BrandMark().fill(Brand.accent).frame(width: 28, height: 28)
+                    Text("Y CONNECT").font(.system(size: 15, weight: .bold))
+                    Spacer(minLength: 0)
+                }.padding(.horizontal, 16).padding(.vertical, 13)
+                    .background(Brand.widgetSurfaceAlt)
                 List(selection: $navigation.selection) {
-                    ForEach(ManagerSection.allCases) { section in
-                        Label(section.title, systemImage: section.symbol).tag(section)
+                    ForEach(ManagerSection.allCases.filter { $0 != .recharge || store.isAccountMode }) { section in
+                        Label(section.title, systemImage: section.symbol)
+                            .foregroundStyle(.primary).tag(section)
                     }
                 }
                 Divider()
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(store.userDisplayName, systemImage: store.isAuthenticated ? "checkmark.circle.fill" : "person.crop.circle.badge.questionmark")
+                HStack(spacing: 10) {
+                    BrandMark().fill(Brand.accent).frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(store.userDisplayName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1).truncationMode(.tail)
+                            .help(store.userDisplayName)
+                        HStack(spacing: 5) {
+                            Circle().fill(store.isAuthenticated ? Color.green : Color.secondary)
+                                .frame(width: 5, height: 5)
+                            Text(store.isAccountMode ? "微信账户已连接" : store.isAuthenticated ? "API Key 已连接" : "尚未连接")
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                     if store.isAuthenticated {
                         Button { Task { await store.signOut() } } label: {
-                            Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                                .frame(width: 28, height: 30).contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain).help("退出登录").accessibilityLabel("退出登录")
+                        .disabled(store.isBusy)
                     }
                 }
-                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .background(Brand.widgetSurfaceAlt)
             }
             .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 250)
         } detail: {
@@ -1112,6 +1203,11 @@ struct ManagerView: View {
         }
         .frame(minWidth: 940, minHeight: 640)
         .tint(Brand.accent)
+        .onChange(of: store.phase, initial: true) { _, _ in
+            if navigation.selection == .recharge && !store.isAccountMode {
+                navigation.selection = .overview
+            }
+        }
         .onAppear {
             if newKeyLabel.isEmpty {
                 newKeyLabel = APIKeyLabelSuggestion.next(existingLabels: store.accountKeys.map(\.label))
@@ -1124,7 +1220,7 @@ struct ManagerView: View {
             await Task.yield()
             newKeyLabelFocused = true
         }
-        .alert("YConnect", isPresented: Binding(
+        .alert("Y CONNECT", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
         )) {
@@ -1154,11 +1250,15 @@ struct ManagerView: View {
     private var pageHeader: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(navigation.selectedSection.title).font(.system(size: 24, weight: .bold))
+                Text(activeSection.title).font(.system(size: 24, weight: .bold))
                 Text(pageSubtitle).font(.system(size: 12.5)).foregroundStyle(.secondary)
             }
             Spacer()
             if store.isAuthenticated {
+                if store.isAccountMode && activeSection != .recharge {
+                    Button { navigation.selection = .recharge } label: { Label("充值", systemImage: "creditcard") }
+                        .buttonStyle(SmallPrimaryButtonStyle())
+                }
                 Button { Task { await store.refresh() } } label: {
                     Label(store.isBusy ? "正在刷新" : "刷新", systemImage: "arrow.clockwise")
                 }
@@ -1169,11 +1269,12 @@ struct ManagerView: View {
     }
 
     @ViewBuilder private var pageContent: some View {
-        if !store.isAuthenticated && navigation.selectedSection != .settings {
+        if !store.isAuthenticated && activeSection != .settings {
             managerLogin
         } else {
-            switch navigation.selectedSection {
+            switch activeSection {
             case .overview: overview
+            case .recharge: recharge
             case .apiKeys: keys
             case .clients: clients
             case .diagnostics: diagnostics
@@ -1182,11 +1283,31 @@ struct ManagerView: View {
         }
     }
 
+    private var recharge: some View {
+        Group {
+            if store.isAccountMode, let session = store.rechargeSession, session.isCurrent {
+                RechargeView(session: session,
+                    balance: store.dashboard?.aiServiceCredit.remainingRMB.map { "¥\($0)" } ?? "—",
+                    beginAccountLogin: beginAccountLogin,
+                    startAnother: { store.prepareRecharge(startAnother: true) })
+                    .id(ObjectIdentifier(session))
+            } else if store.isAccountMode {
+                VStack(alignment: .leading, spacing: 14) {
+                    Label("准备充值账户", systemImage: "creditcard")
+                        .font(.headline)
+                    Text("通过账户登录后选择金额与支付方式。预览模式不会创建真实订单。")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button("登录 YAKCOOL 账户", action: beginAccountLogin).buttonStyle(SmallPrimaryButtonStyle())
+                }
+            }
+        }.task(id: store.phase) { store.prepareRecharge() }
+    }
+
     private var managerLogin: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("选择连接方式").font(.system(size: 16, weight: .semibold))
             HStack(alignment: .top, spacing: 16) {
-                managerLoginCard(symbol: "qrcode.viewfinder", title: "YakCool 账户", description: "微信扫码登录后管理余额、兑换与 API Keys。") {
+                managerLoginCard(symbol: "qrcode.viewfinder", title: "YAKCOOL 账户", description: "微信扫码登录后管理余额、兑换与 API Keys。") {
                     beginAccountLogin()
                 }
                 VStack(alignment: .leading, spacing: 10) {
@@ -1226,7 +1347,7 @@ struct ManagerView: View {
             Text(description).font(.system(size: 12)).foregroundStyle(.secondary)
             Spacer()
             Button(action: action) {
-                Label("在 YConnect 内扫码", systemImage: "qrcode.viewfinder")
+                Label("在 Y CONNECT 内扫码", systemImage: "qrcode.viewfinder")
             }
             .buttonStyle(SmallPrimaryButtonStyle())
         }
@@ -1253,6 +1374,7 @@ struct ManagerView: View {
             }
 
             if store.isAccountMode {
+                AccountSpendingView(store: store)
                 GroupBox("兑换额度") {
                     HStack(spacing: 10) {
                         TextField("输入 12–64 位兑换码", text: $redeemCode).textFieldStyle(.roundedBorder)
@@ -1371,8 +1493,8 @@ struct ManagerView: View {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 28)).foregroundStyle(Brand.accent)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("一套 YakCool 凭证，连接不同本地客户端").font(.system(size: 17, weight: .semibold))
-                    Text("每个适配器按客户端原生协议生成配置。只改 YakCool 节点与默认模型，写前完整备份；密钥放在权限为 0600 的独立文件，并通过客户端官方支持的 file / helper / command 机制读取。")
+                    Text("选择模型，在终端启动你的 Agent").font(.system(size: 17, weight: .semibold))
+                    Text("每次启动使用独立的 YAKCOOL 会话配置，可同时运行不同模型。选择工作目录后即可开始。")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1430,24 +1552,28 @@ struct ManagerView: View {
                     }
                     if store.isAccountMode {
                         Picker("API Key", selection: $store.selectedAccountKeyID) {
-                            ForEach(store.accountKeys) { key in
+                            ForEach(store.accountKeys.filter { $0.status == "enabled" }) { key in
                                 Text("\(key.label) · ••••\(key.last4)").tag(Optional(key.id))
                             }
                         }
                     }
                     modelPicker
+                    if store.selectedClientID == .grokBuild { contextWindowControl }
                     Text(store.selectedClientDescriptor.restartNote)
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 .padding(.top, 8)
                 }
 
+                if ClientLauncher.supports(store.selectedClientID) { launcherPanel }
+
+                DisclosureGroup("固定配置与备份") {
                 HStack(spacing: 10) {
                     Button { Task { await store.applySelectedClientConfiguration() } } label: {
                         Label("备份并应用到 \(store.selectedClientDescriptor.shortName)", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .buttonStyle(SmallPrimaryButtonStyle())
-                    .disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty)
+                    .disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty || store.contextWindowValidationMessage != nil)
                     Button { store.restoreSelectedClientConfiguration() } label: {
                         Label("恢复最近备份", systemImage: "clock.arrow.circlepath")
                     }
@@ -1458,12 +1584,47 @@ struct ManagerView: View {
                     .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
                 }
                 Text(store.selectedClientMessage).font(.system(size: 12)).foregroundStyle(.secondary)
+                }.padding(.top, 4)
             }
             securityNote
         }
         .task(id: "\(store.selectedClientID.rawValue)-\(store.selectedAccountKeyID ?? 0)-\(store.phase)") {
             store.refreshInstalledClients()
             await store.refreshConfigurationModels()
+        }
+    }
+
+    private var launcherPanel: some View {
+        GroupBox("启动 Agent") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    TextField("工作目录", text: $store.launchDirectory).textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("launch-directory")
+                    Button("选择目录") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = false; panel.canChooseDirectories = true
+                        panel.allowsMultipleSelection = false; panel.prompt = "选择工作目录"
+                        panel.directoryURL = URL(fileURLWithPath: (store.launchDirectory as NSString).expandingTildeInPath)
+                        if panel.runModal() == .OK, let url = panel.url { store.launchDirectory = url.path }
+                    }.buttonStyle(SmallSecondaryButtonStyle())
+                }
+                HStack(spacing: 10) {
+                    Button { Task { await store.launchSelectedClient() } } label: {
+                        Label(store.isBusy ? "正在准备…" : "在终端启动 Agent", systemImage: "play.fill")
+                    }.buttonStyle(SmallPrimaryButtonStyle()).accessibilityIdentifier("client-launch")
+                        .disabled(!ClientLauncher.canAutoStart(store.selectedClientID))
+                    Button { Task { await store.launchSelectedClient(autoStart: false) } } label: {
+                        Label("仅打开专用终端", systemImage: "terminal")
+                    }.buttonStyle(SmallSecondaryButtonStyle())
+                }
+                if store.selectedClientID == .openClaw {
+                    Text("OpenClaw 需要先准备独立网关；请在专用终端中完成设置。").font(.caption).foregroundStyle(.secondary)
+                }
+                if let message = store.launchMessage {
+                    Text(message).font(.callout).foregroundStyle(Brand.accent).textSelection(.enabled)
+                }
+                Text("macOS Terminal · 每次使用新会话 · 退出会话后清除启动密钥").font(.caption).foregroundStyle(.secondary)
+            }.padding(.top, 8).disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty || store.contextWindowValidationMessage != nil)
         }
     }
 
@@ -1479,6 +1640,34 @@ struct ManagerView: View {
                 ForEach(models) { model in Text(model.name).tag(Optional(model.id)) }
             }
         }
+    }
+
+    private var contextWindowControl: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("上下文长度")
+                Spacer()
+                TextField("客户端默认", text: $store.contextWindowInput)
+                    .textFieldStyle(.roundedBorder).frame(width: 155)
+                    .accessibilityIdentifier("context-window-input")
+                Text("tokens").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 7) {
+                Text("快速设置").font(.caption).foregroundStyle(.secondary)
+                ForEach([("默认", ""), ("200K", "200000"), ("500K", "500000"), ("1M", "1000000")], id: \.0) { label, value in
+                    Button(label) { store.contextWindowInput = value }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .foregroundStyle(store.contextWindowInput == value ? Brand.accent : .primary)
+                }
+            }
+            if let message = store.contextWindowValidationMessage {
+                Text(message).font(.caption).foregroundStyle(.red)
+            } else {
+                Text("按模型记住，启动或应用后在新会话生效。500K = 500,000 tokens；实际可用长度以模型服务上限为准。")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
+            }
+        }
+        .disabled(store.isBusy || store.selectedModelID == nil)
     }
 
     private var diagnostics: some View {
@@ -1623,8 +1812,9 @@ struct ManagerView: View {
     }
 
     private var pageSubtitle: String {
-        switch navigation.selectedSection {
-        case .overview: return "查看 YakCool 账户状态、额度与使用概况"
+        switch activeSection {
+        case .overview: return "查看 YAKCOOL 账户状态、额度与使用概况"
+        case .recharge: return "微信或支付宝扫码，充值后自动同步账户余额"
         case .apiKeys: return "安全创建、选择、复制和删除 API Key"
         case .clients: return "自动检测并只展示本机已安装、可安全配置的客户端"
         case .diagnostics: return "分层验证服务、权限、模型和实际调用"

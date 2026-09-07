@@ -13,7 +13,7 @@ internal static class LauncherChecks
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool GetConsoleMode(IntPtr handle, out uint mode);
     public static int InteractiveFixture(string root)
     {
-        Console.WriteLine("YConnect interactive fixture: no network requests; independent console session.");
+        Console.WriteLine("Y CONNECT interactive fixture: no network requests; independent console session.");
         uint mode;
         var evidence = new JObject { ["pid"] = Process.GetCurrentProcess().Id, ["keyMatched"] = Environment.GetEnvironmentVariable("YCONNECT_API_KEY") == DemoApi.Key + "-" + Path.GetFileName(root), ["model"] = Environment.GetEnvironmentVariable("YCONNECT_MODEL"), ["cwd"] = Environment.CurrentDirectory, ["inputConsole"] = GetConsoleMode(GetStdHandle(-10), out mode), ["outputConsole"] = GetConsoleMode(GetStdHandle(-11), out mode) };
         using (var current = Process.GetCurrentProcess()) LaunchHandshake.TrackProcess(Path.Combine(root, "started.txt"), "fixture", current);

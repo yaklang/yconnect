@@ -29,7 +29,7 @@ namespace YConnect.Views
         {
             this.app = app; session = existing;
             if (session?.HasOrder == true) { amount = session.Amount; channel = session.Channel; }
-            Title = "YConnect · 账户充值"; Width = 460; MaxHeight = Math.Max(400, SystemParameters.WorkArea.Height - 40);
+            Title = "Y CONNECT · 账户充值"; Width = 460; MaxHeight = Math.Max(400, SystemParameters.WorkArea.Height - 40);
             SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize; WindowStyle = WindowStyle.None;
             AllowsTransparency = true; Background = Brushes.Transparent; ShowInTaskbar = true;
             WindowStartupLocation = WindowStartupLocation.CenterScreen; UseLayoutRounding = true; SnapsToDevicePixels = true;
@@ -115,9 +115,9 @@ namespace YConnect.Views
             if (!string.IsNullOrEmpty(error)) { panel.Children.Add(Ui.Notice(error, true)); panel.Children.Add(Ui.Gap(10)); }
             if (session == null || loginRequired)
             {
-                panel.Children.Add(Ui.Text(loginRequired ? "登录已过期，请重新连接账户" : "先登录要充值的 YakCool 账户", 16, "Ink", true));
+                panel.Children.Add(Ui.Text(loginRequired ? "登录已过期，请重新连接账户" : "先登录要充值的 YAKCOOL 账户", 16, "Ink", true));
                 panel.Children.Add(Ui.Gap(8)); panel.Children.Add(Ui.Text("API Key 只能访问模型，无法确认充值归属。账户登录后再选择金额和支付方式。", 12, "Muted")); panel.Children.Add(Ui.Gap(16));
-                panel.Children.Add(Action("登录 YakCool 账户", "recharge-login", async () => { Close(); await app.LoginForRecharge(); }, "Primary"));
+                panel.Children.Add(Action("登录 YAKCOOL 账户", "recharge-login", async () => { Close(); await app.LoginForRecharge(); }, "Primary"));
             }
             else
             {

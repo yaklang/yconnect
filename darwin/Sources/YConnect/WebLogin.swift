@@ -55,7 +55,7 @@ enum AccountLoginStatusText {
         if case .invalidCredential = error as? YConnectError {
             return waiting
         }
-        return "暂时无法确认登录状态，YConnect 会自动重试"
+        return "暂时无法确认登录状态，Y CONNECT 会自动重试"
     }
 }
 
@@ -97,7 +97,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 38).isActive = true
 
-        let title = NSTextField(labelWithString: "在 YConnect 内登录 YakCool")
+        let title = NSTextField(labelWithString: "在 Y CONNECT 内登录 YAKCOOL")
         title.font = .systemFont(ofSize: 16, weight: .semibold)
         let subtitle = NSTextField(labelWithString: "使用微信扫描下方官方二维码，无需切换到浏览器")
         subtitle.font = .systemFont(ofSize: 11.5, weight: .regular)
@@ -177,7 +177,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
             backing: .buffered,
             defer: false
         )
-        window.title = "YConnect · YakCool 扫码登录"
+        window.title = "Y CONNECT · YAKCOOL 扫码登录"
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 720, height: 620)
         window.center()
@@ -189,7 +189,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         statusLabel = status
 
         // A previous WebKit session must never be silently promoted to the
-        // Keychain. Remove only the public YakCool session, preserving unrelated
+        // Keychain. Remove only the public YAKCOOL session, preserving unrelated
         // website data and the QR provider's cookies.
         configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             let stale = cookies.filter {
@@ -238,7 +238,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
     }
 
     private func showBlockedNavigation(_ url: URL) {
-        statusLabel?.stringValue = "已阻止离开 YakCool 登录流程：\(url.host ?? url.scheme ?? "未知地址")"
+        statusLabel?.stringValue = "已阻止离开 YAKCOOL 登录流程：\(url.host ?? url.scheme ?? "未知地址")"
     }
 
     private func inspectCookies() {
@@ -280,20 +280,22 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else {
-            decisionHandler(.cancel)
-            return
-        }
-        if url.scheme == "about" {
+        MainActor.assumeIsolated {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.cancel)
+                return
+            }
+            if url.scheme == "about" {
+                decisionHandler(.allow)
+                return
+            }
+            guard Self.isAllowedLoginURL(url) else {
+                showBlockedNavigation(url)
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.allow)
-            return
         }
-        guard Self.isAllowedLoginURL(url) else {
-            MainActor.assumeIsolated { showBlockedNavigation(url) }
-            decisionHandler(.cancel)
-            return
-        }
-        decisionHandler(.allow)
     }
 
     nonisolated func webView(
@@ -302,9 +304,11 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url,
-           Self.isAllowedLoginURL(url) {
-            _ = MainActor.assumeIsolated { webView.load(navigationAction.request) }
+        MainActor.assumeIsolated {
+            if let url = navigationAction.request.url,
+               Self.isAllowedLoginURL(url) {
+                webView.load(navigationAction.request)
+            }
         }
         return nil
     }

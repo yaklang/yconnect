@@ -25,7 +25,7 @@ namespace YConnect.Views
         public bool IsDragging => dragging;
         public EdgeDock(AppController controller)
         {
-            this.controller = controller; Title = "YConnect · 屏幕边缘入口"; Width = 30; Height = 112; AllowsTransparency = true; Background = Brushes.Transparent; WindowStyle = WindowStyle.None; ShowInTaskbar = false; Topmost = true; ShowActivated = false; ResizeMode = ResizeMode.NoResize;
+            this.controller = controller; Title = "Y CONNECT · 屏幕边缘入口"; Width = 30; Height = 112; AllowsTransparency = true; Background = Brushes.Transparent; WindowStyle = WindowStyle.None; ShowInTaskbar = false; Topmost = true; ShowActivated = false; ResizeMode = ResizeMode.NoResize;
             Peek = new BalancePeekWindow(controller);
             var grid = new Grid { Background = Brushes.Transparent }; Content = grid;
             dots = Ui.Glyph("\uE712", 14, "Accent"); dots.HorizontalAlignment = HorizontalAlignment.Center; dots.Opacity = 0;

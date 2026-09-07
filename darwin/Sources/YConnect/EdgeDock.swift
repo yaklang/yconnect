@@ -373,7 +373,7 @@ private final class EdgeDockStripView: NSVisualEffectView {
             stack.topAnchor.constraint(equalTo: topAnchor), stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        toolTip = "YConnect 快捷操作"
+        toolTip = "Y CONNECT 快捷操作"
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
@@ -441,7 +441,7 @@ private final class EdgeDockTabView: NSView {
         for _ in 0..<3 {
             let dot = CALayer(); dot.cornerRadius = 1.5; layer?.addSublayer(dot); dots.append(dot)
         }
-        toolTip = "YConnect · 点击打开 / 上下拖动调整位置"
+        toolTip = "Y CONNECT · 点击打开 / 上下拖动调整位置"
         apply(animated: false)
     }
 

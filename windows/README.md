@@ -1,4 +1,4 @@
-# YConnect for Windows
+# Y CONNECT for Windows
 
 C# + 原生 WPF 桌面客户端。不是 Electron；主界面不使用 HTML 或浏览器渲染。
 
@@ -31,7 +31,7 @@ CI 使用 `./windows/build.ps1 -Test -Package -Installer` 构建；本地生成�
 
 ## 登录
 
-- **YakCool 账户**：点击「在 YConnect 内扫码」，在独立窗口中的 YakCool 官方 HTTPS 页面扫码。页面加载失败可重新加载；二维码过期可使用官方页面的刷新入口。
+- **YAKCOOL 账户**：点击「在 Y CONNECT 内扫码」，在独立窗口中的 YAKCOOL 官方 HTTPS 页面扫码。页面加载失败可重新加载；二维码过期可使用官方页面的刷新入口。
 - **API Key**：粘贴业务 Key，验证额度和当前 Key 可用模型后连接。不提供账户管理权限。
 - 扫码需 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。系统通常已经提供；不随安装包捆绑 Chromium。没有 WebView2 时 API Key 模式仍可使用。
 - 如代理导致微信资源加载失败，使用 `YConnect.exe --no-proxy` 或在偏好设置开启「直连网络」后重启。API 和 WebView2 都绕过代理，直连选择会保存在本应用偏好中，不修改系统代理。构建脚本也支持 `-NoProxy`。
@@ -46,11 +46,11 @@ CI 使用 `./windows/build.ps1 -Test -Package -Installer` 构建；本地生成�
 
 在「客户端启动器」选择 Key、模型、工作目录和 Windows Terminal / PowerShell / CMD，点击「启动新会话」。每次启动使用独立连接，不修改现有客户端配置；也可以「仅打开专用终端」，准备好连接后再输入 `yconnect` 启动。客户端退出后终端保留，可再次运行。小组件客户端右侧的启动按钮沿用上次选择的工作目录；首次使用先进入启动器设置目录。
 
-OpenCode 使用进程内配置，Codex 使用命令行覆盖与独立 provider，Claude Code 使用会话设置与环境凭证读取器；Pi、Grok Build、Hermes 使用独立客户端目录。后者的会话记录保存在 YConnect 的 `LaunchSessions`，不会导入原有插件或登录状态。OpenClaw 提供带独立配置的专用终端，需按需运行本地 agent 或网关；Claude Desktop 仍使用原有配置预览流程。
+OpenCode 使用进程内配置，Codex 使用命令行覆盖与独立 provider，Claude Code 使用会话设置与环境凭证读取器；Pi、Grok Build、Hermes 使用独立客户端目录。后者的会话记录保存在 Y CONNECT 的 `LaunchSessions`，不会导入原有插件或登录状态。OpenClaw 提供带独立配置的专用终端，需按需运行本地 agent 或网关；Claude Desktop 仍使用原有配置预览流程。
 
-Key 不进入命令行、脚本正文或会话配置文件。交接文件用 DPAPI 加密并设置私有权限，终端启动器读取后立即删除；Windows Terminal 即使已有进程也能正确收到本次连接。Key 随新终端的进程环境传给客户端，不修改系统环境变量。独立会话的 Key 在窗口关闭前保持不变；在 YConnect 切换 Key 不会改动已经运行的会话。
+Key 不进入命令行、脚本正文或会话配置文件。交接文件用 DPAPI 加密并设置私有权限，终端启动器读取后立即删除；Windows Terminal 即使已有进程也能正确收到本次连接。Key 随新终端的进程环境传给客户端，不修改系统环境变量。独立会话的 Key 在窗口关闭前保持不变；在 Y CONNECT 切换 Key 不会改动已经运行的会话。
 
-「固定配置与备份」保留预览、备份、应用与恢复，适合希望日后从其他入口启动也默认使用 YakCool 的用户。该区域默认收起，终端启动不需要先应用配置。
+「固定配置与备份」保留预览、备份、应用与恢复，适合希望日后从其他入口启动也默认使用 YAKCOOL 的用户。该区域默认收起，终端启动不需要先应用配置。
 
 适配依据：[Codex 自定义 provider](https://learn.chatgpt.com/docs/config-file/config-advanced)、[OpenCode 进程配置](https://opencode.ai/docs/config/)、[Claude Code 会话参数](https://code.claude.com/docs/en/cli-reference)、[Grok 配置目录](https://docs.x.ai/build/settings)、[Pi 配置](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)、[Hermes 配置](https://hermes-agent.nousresearch.com/docs/user-guide/configuration/)、[OpenClaw 独立目录](https://docs.openclaw.ai/help/environment)。
 
@@ -64,9 +64,9 @@ Key 不进入命令行、脚本正文或会话配置文件。交接文件用 DPA
 
 `./windows/build.ps1 -Test -RechargeSmoke -Package` 验证原生充值控件及便携包，全部使用隔离演示订单，不发送真实支付请求。桌面合成截图受其他窗口遮挡时明确标记 `NOT VERIFIED`；功能断言与 WPF 内容截图单独记录。
 
-小组件支持互斥展开协议/模型；「复制完整接入」包含当前推荐模型、当前客户端、全部可用模型名称与 ID、三种协议、五个接入地址、敏感 Key 及 YakCool/YConnect 官方入口，只应交给可信的人。复制 Key 和完整接入信息后，剪贴板内容在 60 秒后仍未变化时会自动清理。
+小组件支持互斥展开协议/模型；「复制完整接入」包含当前推荐模型、当前客户端、全部可用模型名称与 ID、三种协议、五个接入地址、敏感 Key 及 YAKCOOL/YConnect 官方入口，只应交给可信的人。复制 Key 和完整接入信息后，剪贴板内容在 60 秒后仍未变化时会自动清理。
 
-模型目录展示客户端真正可以请求的 **YakCool 网关入口协议**，而不是只展示 Provider 的原生上游模式。AIBalance 会在 Chat Completions、Responses 和 Anthropic Messages 与模型原生协议之间转换；支持多种传输的客户端仍优先采用模型原生模式生成配置。
+模型目录展示客户端真正可以请求的 **YAKCOOL 网关入口协议**，而不是只展示 Provider 的原生上游模式。AIBalance 会在 Chat Completions、Responses 和 Anthropic Messages 与模型原生协议之间转换；支持多种传输的客户端仍优先采用模型原生模式生成配置。
 
 完整模型能力画像复刻 AIBalance 的 15 个检测维度：协议发现、响应与固定指令遵循、随机标记图片 OCR、自动/指定工具调用、工具结构、工具结果回灌、thinking 开关，以及 minimal、low、medium、high、xhigh、max 六档思考强度。工具结构复用自动工具调用的响应，因此完整画像最多产生 13 次真实模型调用；开始前必须确认，基础调用失败会停止后续付费检测。客户端只能观察网关响应，因此会明确区分「网关接受请求」与「响应中确实出现可见 reasoning」，不会把隐藏思考虚报为可见思考。
 

@@ -48,12 +48,12 @@ namespace YConnect.Core
         public static string ValidateKey(string value)
         {
             value = value?.Trim();
-            if (string.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value) > 512 || value.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) throw new InvalidOperationException("请输入有效的 YakCool API Key（不含空格，最多 512 字节）");
+            if (string.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value) > 512 || value.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) throw new InvalidOperationException("请输入有效的 YAKCOOL API Key（不含空格，最多 512 字节）");
             return value;
         }
         public static string ValidateCookie(string value)
         {
-            if (value == null || !Regex.IsMatch(value, @"\A[A-Za-z0-9._~-]{8,4096}\z")) throw new InvalidOperationException("YakCool 公开用户会话无效");
+            if (value == null || !Regex.IsMatch(value, @"\A[A-Za-z0-9._~-]{8,4096}\z")) throw new InvalidOperationException("YAKCOOL 公开用户会话无效");
             return value;
         }
         public static string ValidateModel(string value)

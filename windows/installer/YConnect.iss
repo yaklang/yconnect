@@ -10,13 +10,13 @@
 
 [Setup]
 AppId=io.yaklang.yconnect
-AppName=YConnect
+AppName=Y CONNECT
 AppVersion={#AppVersion}
 AppPublisher=YakLang
 AppPublisherURL=https://github.com/yaklang/yconnect
 AppSupportURL=https://github.com/yaklang/yconnect/issues
 DefaultDirName={localappdata}\Programs\YConnect
-DefaultGroupName=YConnect
+DefaultGroupName=Y CONNECT
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -42,11 +42,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Source: "{#PayloadDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\YConnect"; Filename: "{app}\YConnect.exe"
-Name: "{autodesktop}\YConnect"; Filename: "{app}\YConnect.exe"; Tasks: desktopicon
+Name: "{group}\Y CONNECT"; Filename: "{app}\YConnect.exe"
+Name: "{autodesktop}\Y CONNECT"; Filename: "{app}\YConnect.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\YConnect.exe"; Description: "Launch YConnect"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\YConnect.exe"; Description: "Launch Y CONNECT"; Flags: nowait postinstall skipifsilent unchecked
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -55,7 +55,7 @@ var
 begin
   Result := RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full', 'Release', FrameworkRelease) and (FrameworkRelease >= 528040);
   if not Result then
-    MsgBox('YConnect requires Microsoft .NET Framework 4.8 or later. Install it through Windows Update, then run this installer again.', mbError, MB_OK);
+    MsgBox('Y CONNECT requires Microsoft .NET Framework 4.8 or later. Install it through Windows Update, then run this installer again.', mbError, MB_OK);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

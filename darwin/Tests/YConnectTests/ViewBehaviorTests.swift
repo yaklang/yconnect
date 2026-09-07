@@ -28,14 +28,14 @@ final class ViewBehaviorTests: XCTestCase {
     }
 
     func testNextYConnectLabelStartsAfterExistingKeyCountAndAvoidsCollisions() {
-        XCTAssertEqual(APIKeyLabelSuggestion.next(existingLabels: []), "YConnect-1")
+        XCTAssertEqual(APIKeyLabelSuggestion.next(existingLabels: []), "Y CONNECT-1")
         XCTAssertEqual(
             APIKeyLabelSuggestion.next(existingLabels: ["Primary", "Work"]),
-            "YConnect-3"
+            "Y CONNECT-3"
         )
         XCTAssertEqual(
-            APIKeyLabelSuggestion.next(existingLabels: [" YConnect-1 ", "YConnect-3"]),
-            "YConnect-4"
+            APIKeyLabelSuggestion.next(existingLabels: [" Y CONNECT-1 ", "Y CONNECT-3"]),
+            "Y CONNECT-4"
         )
     }
 
@@ -57,18 +57,18 @@ final class ViewBehaviorTests: XCTestCase {
         let store = YConnectStore.preview(
             environment: .preview(at: root),
             installedClientIDs: [.claudeCode, .codex, .openCode],
-            operationMessage: "“YConnect-4”已删除"
+            operationMessage: "“Y CONNECT-4”已删除"
         )
         let presentation = WidgetPresentationState()
 
-        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 600)
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 750)
 
         presentation.showsConnectionURLs = true
-        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 752)
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 902)
 
         presentation.showsConnectionURLs = false
         presentation.showsModels = true
-        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 634)
+        XCTAssertEqual(WidgetMetrics.height(for: store, presentation: presentation), 784)
     }
 
     @MainActor

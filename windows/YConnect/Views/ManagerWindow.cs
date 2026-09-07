@@ -31,7 +31,7 @@ namespace YConnect.Views
         public ManagerWindow(AppController controller)
         {
             this.controller = controller; controller.Store.Preferences.SidebarCollapsed = false;
-            overviewConnection = new ConnectionPanel(controller, "overview", Render, true, CreateKeyFromOverview); Title = "YConnect · 管理中心"; Width = Math.Min(1080, SystemParameters.WorkArea.Width - 48); Height = Math.Min(760, SystemParameters.WorkArea.Height - 48); MinWidth = 850; MinHeight = 640;
+            overviewConnection = new ConnectionPanel(controller, "overview", Render, true, CreateKeyFromOverview); Title = "Y CONNECT · 管理中心"; Width = Math.Min(1080, SystemParameters.WorkArea.Width - 48); Height = Math.Min(760, SystemParameters.WorkArea.Height - 48); MinWidth = 850; MinHeight = 640;
             WindowStartupLocation = WindowStartupLocation.CenterScreen; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.CanResize;
             SetResourceReference(BackgroundProperty, "Page"); layout.SetResourceReference(Panel.BackgroundProperty, "Page");
             WindowChrome.SetWindowChrome(this, new WindowChrome { CaptionHeight = 0, ResizeBorderThickness = new Thickness(6), CornerRadius = new CornerRadius(12), GlassFrameThickness = new Thickness(0) });
@@ -66,7 +66,7 @@ namespace YConnect.Views
             navigation.Children.Clear(); sidebarBrand.Children.Clear(); sidebarFooter.Children.Clear();
             var toggle = Ui.IconButton("\uE700", collapsed ? "展开侧栏" : "收起侧栏", "sidebar-toggle", ToggleSidebar); toggle.Width = 30; toggle.Height = 30;
             if (collapsed) { sidebarBrand.Children.Add(Ui.Logo(32)); sidebarBrand.Children.Add(Ui.Gap(10)); sidebarBrand.Children.Add(toggle); }
-            else sidebarBrand.Children.Add(Ui.Between(Ui.IconLabel(Ui.Logo(30), Ui.Stack(Ui.Label("YConnect", 17, "Ink", true), Ui.Gap(3), Ui.Label("桌面连接", 10, "Muted")), 30, 9), toggle));
+            else sidebarBrand.Children.Add(Ui.Between(Ui.IconLabel(Ui.Logo(30), Ui.Stack(Ui.Label("Y CONNECT", 17, "Ink", true), Ui.Gap(3), Ui.Label("桌面连接", 10, "Muted")), 30, 9), toggle));
             sidebarBrand.Children.Add(Ui.Gap(collapsed ? 12 : 24));
             var navs = new[] { ("overview", "账户概览", "\uE80F"), ("keys", "API Keys", "\uE8D7"), ("clients", "客户端启动器", "\uE8A5"), ("models", "模型目录", "\uE7F4"), ("checks", "连接测试", "\uE9D9"), ("settings", "设置", "\uE713") };
             foreach (var item in navs)
@@ -78,7 +78,7 @@ namespace YConnect.Views
             }
             sidebarFooter.Children.Add(Ui.SmallButton(collapsed ? "↗" : "打开桌面连接  ↗", "manager-open-widget", controller.ShowWidget)); sidebarFooter.Children.Add(Ui.Divider());
             var account = Ui.Button("", "sidebar-account", () => { if (store.Authenticated) Navigate("keys"); else controller.ShowWidget(); }, "Quiet"); account.Padding = new Thickness(0, 5, 0, 5); account.HorizontalContentAlignment = HorizontalAlignment.Left;
-            var name = store.Authenticated ? store.DisplayName : "登录 YakCool"; var title = Ui.Text(name, 12, "Ink", true); title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis; title.MaxWidth = 133;
+            var name = store.Authenticated ? store.DisplayName : "登录 YAKCOOL"; var title = Ui.Text(name, 12, "Ink", true); title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis; title.MaxWidth = 133;
             account.ToolTip = name; account.Content = collapsed ? (UIElement)Ui.Avatar(name, 34) : Ui.Row(Ui.Avatar(name, 34), new Border { Width = 10 }, Ui.Stack(title, Ui.Gap(4), Ui.Text(store.Authenticated ? (store.Mode == "account" ? "● 账户已连接" : "● API Key 已连接") : "连接你的模型与额度", 10, store.Authenticated ? "Green" : "Muted")));
             sidebarFooter.Children.Add(account); sidebarFooter.Children.Add(Ui.Gap(14));
             if (!collapsed) { sidebarFooter.Children.Add(Ui.Text("Y A K C O O L", 12, "Accent", true)); sidebarFooter.Children.Add(Ui.Gap(5)); sidebarFooter.Children.Add(Ui.Text("模型服务 · 随手连接", 9, "Muted")); }
@@ -140,7 +140,7 @@ namespace YConnect.Views
             var input = Ui.Id(new PasswordBox { MinHeight = 38, MaxLength = 512 }, "overview-login-input");
             var paste = Ui.SmallButton("粘贴", "overview-login-paste", () => { try { if (Clipboard.ContainsText()) input.Password = Clipboard.GetText(); input.Focus(); } catch { store.SetError("暂时无法读取剪贴板"); } }); paste.MinHeight = 38;
             var key = Ui.AsyncButton("验证并连接", "overview-login-key", async () => { var value = input.Password; input.Clear(); await store.Run(() => store.LoginKey(value)); }, "Primary"); key.IsEnabled = !store.Busy;
-            var account = Ui.Card(Ui.Stack(Ui.Logo(38), Ui.Gap(16), Ui.Text("连接 YakCool 账户", 21, "Ink", true), Ui.Gap(10), Ui.Text("同步额度与模型，管理你的全部 API Key。", 12, "Muted"), Ui.Gap(18), Ui.AsyncButton("在 YConnect 内扫码", "overview-login-account", controller.LoginAccount, "Primary")), 24);
+            var account = Ui.Card(Ui.Stack(Ui.Logo(38), Ui.Gap(16), Ui.Text("连接 YAKCOOL 账户", 21, "Ink", true), Ui.Gap(10), Ui.Text("同步额度与模型，管理你的全部 API Key。", 12, "Muted"), Ui.Gap(18), Ui.AsyncButton("在 Y CONNECT 内扫码", "overview-login-account", controller.LoginAccount, "Primary")), 24);
             var api = Ui.Card(Ui.Stack(Ui.Text("使用 API Key", 21, "Ink", true), Ui.Gap(10), Ui.Text("连接一把业务 Key，查看其额度与可用模型。", 12, "Muted"), Ui.Gap(18), Ui.Between(input, paste), Ui.Gap(12), key), 24);
             return Ui.Columns(2, account, api);
         }
@@ -162,7 +162,7 @@ namespace YConnect.Views
         private FrameworkElement KeysPage()
         {
             var store = controller.Store;
-            if (store.Mode != "account") return Ui.Card(Ui.Stack(Ui.Text("账户登录后管理 Key", 20, "Ink", true), Ui.Gap(10), Ui.Text("API Key 模式仅能查看当前 Key 的额度和模型。创建、删除和兑换需要账户权限。", 13, "Muted"), Ui.Gap(14), Ui.AsyncButton("登录 YakCool 账户", "keys-account-login", controller.LoginAccount, "Primary")), 28);
+            if (store.Mode != "account") return Ui.Card(Ui.Stack(Ui.Text("账户登录后管理 Key", 20, "Ink", true), Ui.Gap(10), Ui.Text("API Key 模式仅能查看当前 Key 的额度和模型。创建、删除和兑换需要账户权限。", 13, "Muted"), Ui.Gap(14), Ui.AsyncButton("登录 YAKCOOL 账户", "keys-account-login", controller.LoginAccount, "Primary")), 28);
             var page = Ui.Stack(Ui.Between(Ui.Text(store.Keys.Count + " / " + store.Dashboard.Number("api_key_limit", 20) + " 个 API Key", 13, "Muted"), Ui.AsyncButton("＋ 创建 Key", "keys-create", CreateKey, "Primary")), Ui.Gap(12));
             foreach (var key in store.Keys)
             {
@@ -176,7 +176,7 @@ namespace YConnect.Views
                 var card = Ui.Card(Ui.Between(details, Ui.Row(use, copy, remove)), 16, selected ? "AccentSoft" : "Surface"); card.Margin = new Thickness(0, 0, 0, 8); page.Children.Add(card);
             }
             var code = Ui.Id(new TextBox { MaxLength = 80 }, "redeem-code"); var redeem = Ui.AsyncButton("兑换额度", "redeem-submit", async () => { var value = code.Text; await store.Run(() => store.Redeem(value)); }, "Primary"); redeem.Margin = new Thickness(12, 0, 0, 0);
-            page.Children.Add(Ui.Gap(8)); page.Children.Add(Ui.Card(Ui.Stack(Ui.Text("兑换额度", 16, "Ink", true), Ui.Gap(9), Ui.Text("输入 YakCool 兑换码，额度将进入当前账户。", 11, "Muted"), Ui.Gap(14), Ui.Between(code, redeem)), 16)); return page;
+            page.Children.Add(Ui.Gap(8)); page.Children.Add(Ui.Card(Ui.Stack(Ui.Text("兑换额度", 16, "Ink", true), Ui.Gap(9), Ui.Text("输入 YAKCOOL 兑换码，额度将进入当前账户。", 11, "Muted"), Ui.Gap(14), Ui.Between(code, redeem)), 16)); return page;
         }
         public async Task CreateKey()
         {
@@ -217,10 +217,10 @@ namespace YConnect.Views
                 detail.Children.Add(Ui.Columns(2, Ui.Stack(Ui.Text("使用的 API Key", 11, "Muted", true), Ui.Gap(8), keySelection), Ui.Stack(Ui.Text("默认模型", 11, "Muted", true), Ui.Gap(8), combo)));
                 detail.Children.Add(Ui.Text(compatible.Length > 0 ? compatible.Length + " 个模型支持此客户端所需的协议" : "当前没有兼容模型，请先连接有效 Key 并刷新。", 11, "Muted")); detail.Children.Add(Ui.Gap(14));
                 if (ClientLauncher.Supported(selected.Id)) { detail.Children.Add(LauncherPanel(selected)); detail.Children.Add(Ui.Gap(12)); }
-                var config = Ui.Stack(Ui.Text("让之后从桌面或命令行打开的客户端也使用 YakCool。", 11, "Muted"), Ui.Gap(8));
+                var config = Ui.Stack(Ui.Text("让之后从桌面或命令行打开的客户端也使用 YAKCOOL。", 11, "Muted"), Ui.Gap(8));
                 foreach (var file in store.Clients.Paths(selected.Id)) { var text = Ui.Selectable(file, 10); config.Children.Add(Ui.Card(Ui.Between(text, Ui.SmallButton(controller.CopyLabel("path:" + file, "复制"), "client-copy-path-" + Array.IndexOf(store.Clients.Paths(selected.Id), file), () => controller.CopyText(file, "path:" + file))), 10, "SurfaceAlt")); config.Children.Add(Ui.Gap(6)); }
                 var preview = Ui.AsyncButton("预览并应用配置  →", "client-preview", PreviewConfiguration); preview.IsEnabled = !store.Busy && compatible.Length > 0 && !string.IsNullOrEmpty(store.CurrentKey); config.Children.Add(preview); config.Children.Add(Ui.Gap(8));
-                var restore = Ui.AsyncButton("恢复最近备份", "client-restore", async () => { if (controller.Confirm("恢复最近备份？", "将恢复“" + selected.Name + "”应用 YakCool 之前的配置。检测到外部修改时会停止恢复。", "恢复配置")) await store.Run(() => store.RestoreConfiguration(selected.Id)); }); restore.IsEnabled = status.HasBackup && !store.Busy; config.Children.Add(restore);
+                var restore = Ui.AsyncButton("恢复最近备份", "client-restore", async () => { if (controller.Confirm("恢复最近备份？", "将恢复“" + selected.Name + "”应用 YAKCOOL 之前的配置。检测到外部修改时会停止恢复。", "恢复配置")) await store.Run(() => store.RestoreConfiguration(selected.Id)); }); restore.IsEnabled = status.HasBackup && !store.Busy; config.Children.Add(restore);
                 config.Children.Add(Ui.Gap(8)); config.Children.Add(Ui.Text("预览确认后备份并写入；重启客户端生效。", 10, "Muted"));
                 detail.Children.Add(Ui.Id(new Expander { Header = Ui.Text("固定配置与备份", 12, "Ink", true), Content = new Border { Child = config, Padding = new Thickness(0, 10, 0, 0) }, IsExpanded = !ClientLauncher.Supported(selected.Id) }, "client-config-expand"));
                 if (store.Environment.Development) { detail.Children.Add(Ui.Gap(8)); detail.Children.Add(Ui.Text("体验预览 · 仅写入隔离目录", 10, "Muted")); }
@@ -294,13 +294,13 @@ namespace YConnect.Views
             {
                 var selected = p; var b = Ui.Button(p == "all" ? "全部协议" : Ui.Protocol(p), "model-filter-" + p, () => { protocolFilter = selected; Render(); }, protocolFilter == p ? "Primary" : null); b.Margin = new Thickness(0, 0, 8, 8); b.FontSize = 11; filters.Children.Add(b);
             }
-            renderResults(); return Ui.Stack(Ui.Notice("目录展示的是你实际可调用的网关协议；YakCool 会在入口协议与模型原生协议之间自动转换。"), Ui.Gap(10), Ui.Text("搜索名称或模型 ID", 11, "Muted"), Ui.Gap(8), input, Ui.Gap(10), filters, Ui.Gap(10), results);
+            renderResults(); return Ui.Stack(Ui.Notice("目录展示的是你实际可调用的网关协议；YAKCOOL 会在入口协议与模型原生协议之间自动转换。"), Ui.Gap(10), Ui.Text("搜索名称或模型 ID", 11, "Muted"), Ui.Gap(8), input, Ui.Gap(10), filters, Ui.Gap(10), results);
         }
         private FrameworkElement ChecksPage()
         {
             var store = controller.Store; var start = Ui.AsyncButton("基础检查", "checks-start", async () => await store.Run(store.CheckConnection), "Primary"); start.IsEnabled = !store.Busy;
             var page = Ui.Stack(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("连接与模型能力", 18, "Ink", true), Ui.Gap(5), Ui.Text("先免费检查服务与 Key，再按需生成真实模型能力画像。", 11, "Muted")), start), 14), Ui.Gap(10));
-            var checks = store.Checks.Count > 0 ? store.Checks : new System.Collections.Generic.List<ServiceCheck> { new ServiceCheck { Title = "YakCool 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
+            var checks = store.Checks.Count > 0 ? store.Checks : new System.Collections.Generic.List<ServiceCheck> { new ServiceCheck { Title = "YAKCOOL 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
             var basicCards = checks.Select(check =>
             {
                 var mark = check.State == "passed" ? "✓" : check.State == "failed" || check.State == "warning" ? "!" : check.State == "running" ? "…" : check.State == "skipped" ? "↷" : "○"; var color = check.State == "passed" ? "Green" : check.State == "failed" ? "Danger" : check.State == "warning" ? "Accent" : "Muted";
@@ -366,11 +366,11 @@ namespace YConnect.Views
             startup.Click += (s, e) => { try { controller.SetStartup(startup.IsChecked == true); } catch (Exception error) { store.SetError(error.Message); } };
             var appearance = Ui.Card(Ui.Stack(Ui.Text("外观与启动", 17, "Ink", true), Ui.Gap(12), Ui.Row(light, dark), Ui.Gap(12), animation, Ui.Gap(5), Ui.Text("动效只在交互时出现，也会尊重 Windows 的减少动画设置。", 11, "Muted"), Ui.Divider(), startup, Ui.Gap(8), Ui.Text(store.Environment.Development ? "预览环境不会修改系统启动项。" : "首次使用默认开启，你随时可以关闭。", 11, "Muted")), 16);
             var page = Ui.Stack(Ui.Columns(2, desktop, appearance));
-            var direct = SettingCheck("直连网络，不使用代理", "setting-direct-network", store.Preferences.BypassProxy, value => { store.Preferences.BypassProxy = value; store.SetMessage("网络偏好已保存，重启 YConnect 后生效。系统代理未修改。"); });
+            var direct = SettingCheck("直连网络，不使用代理", "setting-direct-network", store.Preferences.BypassProxy, value => { store.Preferences.BypassProxy = value; store.SetMessage("网络偏好已保存，重启 Y CONNECT 后生效。系统代理未修改。"); });
             page.Children.Add(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("网络连接", 16, "Ink", true), Ui.Gap(9), Ui.Text("扫码或同步遇到问题时，可以尝试应用直连。", 11, "Muted")), direct), 16)); page.Children.Add(Ui.Gap(14));
             var logout = Ui.AsyncButton("登出当前连接", "setting-signout", controller.SignOut); logout.IsEnabled = store.Authenticated;
             page.Children.Add(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("账户与隐私", 16, "Ink", true), Ui.Gap(9), Ui.Text("凭证加密保存在本机，配置前自动备份。登出不会删除下游客户端配置。", 11, "Muted")), logout), 16)); page.Children.Add(Ui.Gap(12));
-            var detail = Ui.Stack(Ui.Text("YConnect 0.2.0 · Windows", 11, "Muted"), Ui.Gap(10), Ui.Text("本地数据", 11, "Muted", true), Ui.Gap(6), Ui.Selectable(store.Environment.DataRoot), Ui.Gap(12), Ui.Button("打开数据目录", "setting-open-data", controller.OpenData), Ui.Gap(12), Ui.Text(store.Environment.Development ? "当前为隔离预览，所有测试配置都写入专用目录，不接触真实客户端。会话使用 DPAPI，备份保留最近 20 份。" : "会话与备份使用 Windows DPAPI。下游凭证文件使用仅当前用户与 SYSTEM 可读的私有权限。最近 20 份备份可恢复。", 11, "Muted"));
+            var detail = Ui.Stack(Ui.Text("Y CONNECT 0.2.0 · Windows", 11, "Muted"), Ui.Gap(10), Ui.Text("本地数据", 11, "Muted", true), Ui.Gap(6), Ui.Selectable(store.Environment.DataRoot), Ui.Gap(12), Ui.Button("打开数据目录", "setting-open-data", controller.OpenData), Ui.Gap(12), Ui.Text(store.Environment.Development ? "当前为隔离预览，所有测试配置都写入专用目录，不接触真实客户端。会话使用 DPAPI，备份保留最近 20 份。" : "会话与备份使用 Windows DPAPI。下游凭证文件使用仅当前用户与 SYSTEM 可读的私有权限。最近 20 份备份可恢复。", 11, "Muted"));
             page.Children.Add(new Expander { Header = Ui.Text("版本、存储与安全详情", 11, "Muted"), Content = new Border { Child = detail, Padding = new Thickness(0, 16, 0, 0) } }); return page;
         }
         private CheckBox SettingCheck(string label, string id, bool value, Action<bool> changed)

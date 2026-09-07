@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_ROOT="$PROJECT_ROOT/darwin"
 RESOURCE_ROOT="$PACKAGE_ROOT/Resources"
 OUTPUT_ROOT="$PROJECT_ROOT/dist"
-ICON_SOURCE="$RESOURCE_ROOT/YConnectAppIcon.svg"
+ICON_SOURCE="$PROJECT_ROOT/resources/brand/yakcool-desktop.png"
 INFO_PLIST_SOURCE="$RESOURCE_ROOT/Info.plist"
 
 VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
@@ -45,25 +45,28 @@ case "$REQUESTED_ARCH" in
 esac
 
 if [[ "$DEVELOPMENT" -eq 1 ]]; then
-    APP_NAME="YConnectDev"
+    APP_NAME="Y CONNECT Dev"
+    ARTIFACT_NAME="YConnectDev"
     BUNDLE_IDENTIFIER="io.yaklang.yconnect.dev"
     OUTPUT_LABEL="darwin-dev-$ARCH_LABEL"
 else
-    APP_NAME="YConnect"
+    APP_NAME="Y CONNECT"
+    ARTIFACT_NAME="YConnect"
     BUNDLE_IDENTIFIER="io.yaklang.yconnect"
     OUTPUT_LABEL="darwin-$ARCH_LABEL"
 fi
 
 APP_OUTPUT_ROOT="$OUTPUT_ROOT/$OUTPUT_LABEL"
 APP_BUNDLE="$APP_OUTPUT_ROOT/$APP_NAME.app"
-DMG_PATH="$OUTPUT_ROOT/$APP_NAME-$VERSION-darwin-$ARCH_LABEL.dmg"
+DMG_PATH="$OUTPUT_ROOT/$ARTIFACT_NAME-$VERSION-darwin-$ARCH_LABEL.dmg"
 ICONSET_DIR="$APP_OUTPUT_ROOT/YConnect.iconset"
 
 for command in magick iconutil codesign lipo; do
     command -v "$command" >/dev/null 2>&1 || { echo "Missing packaging command: $command" >&2; exit 1; }
 done
 
-rm -rf "$APP_OUTPUT_ROOT"
+# Preserve any old bundle paths still used by active terminal session runners.
+rm -rf "$APP_BUNDLE" "$ICONSET_DIR"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$ICONSET_DIR"
 
 BUILD_ARGS=(--package-path "$PACKAGE_ROOT" -c release "${SWIFT_ARCHS[@]}")
@@ -92,8 +95,8 @@ cp "$BASE_PNG" "$ICONSET_DIR/icon_512x512@2x.png"
 
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/YConnect.icns"
 cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Y CONNECT" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Y CONNECT" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_IDENTIFIER" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
 if [[ -n "${GITHUB_RUN_NUMBER:-}" ]]; then

@@ -49,6 +49,8 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var phase: AuthenticationPhase = .signedOut
     @Published var preferredAuthenticationMode: AuthenticationMode = .account
     @Published private(set) var dashboard: DashboardResponse?
+    @Published private(set) var accountUsage: AccountUsageResponse?
+    @Published private(set) var spendingUpdatedAt: Date?
     @Published private(set) var account: UserAccountResponse?
     @Published private(set) var accountKeys: [APIKeyRecord] = []
     @Published private(set) var accountModels: [ModelRecord] = []
@@ -71,7 +73,22 @@ final class YConnectStore: ObservableObject {
     @Published var selectedModelID: String? {
         didSet {
             rememberModelID(selectedModelID, for: selectedClientID)
+            contextWindowInput = rememberedContextWindowInput()
         }
+    }
+    @Published var contextWindowInput: String = "" {
+        didSet {
+            guard let modelID = selectedModelID else { return }
+            contextWindowInputs[selectedClientID, default: [:]][modelID] = contextWindowInput
+            if !isPreview {
+                YConnectPreferences.setContextWindowInput(contextWindowInput, for: selectedClientID, modelID: modelID)
+            }
+        }
+    }
+    var contextWindowValidationMessage: String? {
+        guard selectedClientID == .grokBuild else { return nil }
+        do { _ = try ContextWindowSetting.parse(contextWindowInput); return nil }
+        catch { return error.localizedDescription }
     }
     @Published private(set) var isBusy = false
     @Published private(set) var operationMessage: String?
@@ -83,6 +100,9 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var installedClientIDs: Set<ClientID>
     @Published private(set) var recentClientIDs: [ClientID]
     @Published private(set) var recentAccessModelIDs: [String]
+    @Published private(set) var rechargeSession: RechargeSession?
+    @Published var launchDirectory: String = YConnectPreferences.launchDirectory
+    @Published private(set) var launchMessage: String?
 
     let environment: AppEnvironment
     private let api: YakCoolAPI
@@ -93,6 +113,72 @@ final class YConnectStore: ObservableObject {
     private var selectedModelIDsByClient: [ClientID: String] = [:]
     private var webCookies: [StoredWebCookie] = []
     private var standaloneAPIKey: String?
+    private var loginGeneration = UUID()
+    private var contextWindowInputs: [ClientID: [String: String]] = [:]
+    private var isRefreshingSpending = false
+    private var lastSpendingAttempt: Date?
+    private var spendingRequestGeneration = UUID()
+
+    private func rememberedContextWindowInput() -> String {
+        guard let modelID = selectedModelID else { return "" }
+        return contextWindowInputs[selectedClientID]?[modelID]
+            ?? (isPreview ? "" : YConnectPreferences.contextWindowInput(for: selectedClientID, modelID: modelID))
+    }
+
+    func prepareRecharge(startAnother: Bool = false) {
+        guard isAccountMode, !isPreview else { return }
+        if let rechargeSession, rechargeSession.isCurrent, !startAnother || rechargeSession.state != .paid { return }
+        let cookies = webCookies
+        let accountID = dashboard?.user.id
+        let generation = loginGeneration
+        rechargeSession = RechargeSession(api: api, cookies: cookies, accountName: userDisplayName,
+            currentAccount: { [weak self] in
+                self?.phase == .account && self?.loginGeneration == generation && self?.webCookies == cookies && self?.dashboard?.user.id == accountID
+            }, refreshBalance: { [weak self] in
+                guard let self, self.phase == .account, self.webCookies == cookies else { throw YConnectError.invalidCredential("账户已变更") }
+                guard !self.isBusy else { throw YConnectError.unsupported("正在刷新账户，请稍候") }
+                self.isBusy = true
+                defer { self.isBusy = false }
+                try await self.refreshAccount()
+                self.operationMessage = "充值成功，账户余额已刷新"
+            })
+    }
+
+    func launchSelectedClient(autoStart: Bool = true) async {
+        guard !isBusy else { return }
+        guard !isPreview else { errorMessage = "预览模式不启动真实 Agent"; return }
+        let clientID = selectedClientID
+        guard let key = currentAPIKeyValue, let modelID = selectedModelID, let client = clients[clientID] else {
+            errorMessage = "请先选择可用的 API Key 与模型"; return
+        }
+        guard let executable = DefaultClientInstallationDetector().executableURL(for: clientID),
+              let runner = Bundle.main.executableURL else {
+            errorMessage = "未找到客户端可执行文件，请重新检测安装"; return
+        }
+        let directory = launchDirectory
+        let contextInput = contextWindowInput
+        isBusy = true; errorMessage = nil; launchMessage = "正在核对模型并准备终端…"
+        defer { isBusy = false }
+        do {
+            let contextWindow = clientID == .grokBuild ? try ContextWindowSetting.parse(contextInput) : nil
+            let response = try await api.keyModels(apiKey: key)
+            try Task.checkCancellation()
+            guard currentAPIKeyValue == key else { throw YConnectError.invalidCredential("API Key 已切换，请重试") }
+            let models = Self.deduplicatedBusinessKeyModels(response.data)
+            guard let selected = client.compatibleModels(from: models.map(Self.clientModelOption)).first(where: { $0.id == modelID }) else {
+                throw YConnectError.unsupported("所选模型已不可用，请刷新模型列表后重新选择")
+            }
+            let plan = try ClientLauncher.prepare(environment: environment, clientID: clientID,
+                model: selected, apiKey: key, directory: directory, autoStart: autoStart,
+                executable: executable, runner: runner, contextWindow: contextWindow)
+            launchMessage = try await ClientLauncher.start(plan)
+            YConnectPreferences.launchDirectory = plan.manifest.directory
+            markClientUsed(clientID)
+        } catch {
+            launchMessage = nil
+            errorMessage = error.localizedDescription
+        }
+    }
 
     init(
         environment: AppEnvironment = .current(),
@@ -143,13 +229,14 @@ final class YConnectStore: ObservableObject {
                 ? "开发预览使用隔离目录，不会修改真实 \(descriptor.name) 配置"
                 : "尚未写入 \(descriptor.name) 配置"
         }
+        contextWindowInput = rememberedContextWindowInput()
     }
 
     var isAuthenticated: Bool { phase.isAuthenticated }
     var isAccountMode: Bool { phase == .account }
     var hasTransientOperationMessage: Bool {
         guard let operationMessage else { return false }
-        return operationMessage != "YakCool 账户已安全连接"
+        return operationMessage != "YAKCOOL 账户已安全连接"
             && operationMessage != "API Key 验证成功"
     }
     var clientDescriptors: [ClientDescriptor] { clients.descriptors }
@@ -248,7 +335,7 @@ final class YConnectStore: ObservableObject {
     var userDisplayName: String {
         switch phase {
         case .account:
-            return dashboard?.user.displayName ?? account?.displayName ?? "YakCool 用户"
+            return dashboard?.user.displayName ?? account?.displayName ?? "YAKCOOL 用户"
         case .apiKey:
             // API Key sessions must only show the privacy-filtered identity
             // returned for that Key, never account data from another mode.
@@ -260,7 +347,7 @@ final class YConnectStore: ObservableObject {
 
     var statusSummary: String {
         switch phase {
-        case .signedOut: return "连接你的 YakCool 账户"
+        case .signedOut: return "连接你的 YAKCOOL 账户"
         case .restoring: return "正在恢复安全会话…"
         case .account:
             guard let credit = dashboard?.aiServiceCredit else { return "账户已连接" }
@@ -323,18 +410,21 @@ final class YConnectStore: ObservableObject {
     }
 
     func completeAccountLogin(cookies: [StoredWebCookie]) async throws {
-        guard !cookies.isEmpty else { throw YConnectError.invalidCredential("没有读取到 YakCool 用户会话") }
+        guard !cookies.isEmpty else { throw YConnectError.invalidCredential("没有读取到 YAKCOOL 用户会话") }
         isBusy = true
         defer { isBusy = false }
         _ = try await api.verifyWebCookies(cookies)
         try credentials.saveWebCookies(cookies)
         try? credentials.deleteAPIKey()
+        loginGeneration = UUID()
+        rechargeSession = nil
+        clearVisibleData()
         webCookies = cookies
         standaloneAPIKey = nil
         phase = .account
         preferredAuthenticationMode = .account
         try await refreshAccount()
-        operationMessage = "YakCool 账户已安全连接"
+        operationMessage = "YAKCOOL 账户已安全连接"
     }
 
     func signIn(apiKey rawValue: String) async {
@@ -370,6 +460,8 @@ final class YConnectStore: ObservableObject {
     }
 
     func signOut() async {
+        loginGeneration = UUID()
+        rechargeSession = nil
         isBusy = true
         defer { isBusy = false }
         if phase == .account, !webCookies.isEmpty { _ = try? await api.logout(cookies: webCookies) }
@@ -475,8 +567,8 @@ final class YConnectStore: ObservableObject {
         let normalizedModelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel = normalizedModelID.flatMap { $0.isEmpty ? nil : "\n\n所选模型\n\($0)" } ?? ""
         return """
-        YConnect · YakCool 接入信息
-        由 YConnect 生成并复制。你可以根据自己的客户端和使用习惯，选择下面任一兼容协议接入。
+        Y CONNECT · YAKCOOL 接入信息
+        由 Y CONNECT 生成并复制。你可以根据自己的客户端和使用习惯，选择下面任一兼容协议接入。
 
         API Key
         \(apiKey)
@@ -489,7 +581,7 @@ final class YConnectStore: ObservableObject {
         OpenAI 兼容协议 / Responses API: Authorization: Bearer
         Anthropic Messages: x-api-key
 
-        安全提醒：API Key 可访问你的 YakCool 额度，请只分享给可信的人。
+        安全提醒：API Key 可访问你的 YAKCOOL 额度，请只分享给可信的人。
         """
     }
 
@@ -530,10 +622,13 @@ final class YConnectStore: ObservableObject {
             return
         }
         let requestedModelID = rememberedModelID(for: operationClientID)
+        let requestedContextInput = contextWindowInput
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
         do {
+            let requestedContextWindow = operationClientID == .grokBuild
+                ? try ContextWindowSetting.parse(requestedContextInput) : nil
             let response = try await api.keyModels(apiKey: key)
             try Task.checkCancellation()
             guard currentAPIKeyValue == key else {
@@ -554,11 +649,17 @@ final class YConnectStore: ObservableObject {
             let modelID = requestedModelID.flatMap { selected in
                 compatible.contains(where: { $0.id == selected }) ? selected : nil
             } ?? compatible[0].id
+            // An override belongs to a particular model. Do not silently carry
+            // a large window onto a fallback model with different limits.
+            if requestedContextWindow != nil, requestedModelID != modelID {
+                throw ClientConfigurationError.invalidSelection("所选模型已不可用，请重新选择模型和上下文长度")
+            }
             updateModelID(modelID, for: operationClientID)
             let result = try client.apply(ClientApplyRequest(
                 apiKey: key,
                 models: allOptions,
-                selectedModelID: modelID
+                selectedModelID: modelID,
+                contextWindow: requestedContextWindow
             ))
             clientMessages[operationClientID] = result.message
             operationMessage = result.message
@@ -615,7 +716,7 @@ final class YConnectStore: ObservableObject {
         isBusy = true
         errorMessage = nil
         serviceChecks = [
-            ServiceCheck(id: "health", title: "YakCool 服务", state: .pending),
+            ServiceCheck(id: "health", title: "YAKCOOL 服务", state: .pending),
             ServiceCheck(id: "auth", title: "API Key 权限", state: .pending),
             ServiceCheck(id: "models", title: "可用模型", state: .pending),
         ]
@@ -683,14 +784,25 @@ final class YConnectStore: ObservableObject {
 
     private func refreshAccount() async throws {
         guard !webCookies.isEmpty else { throw YConnectError.invalidCredential("账户会话不存在") }
+        let cookies = webCookies
+        let generation = loginGeneration
+        let spendingGeneration = UUID()
+        spendingRequestGeneration = spendingGeneration
         async let dashboardRequest = api.dashboard(cookies: webCookies)
         async let accountRequest = api.account(cookies: webCookies)
         async let keysRequest = api.apiKeys(cookies: webCookies)
         async let modelsRequest = api.models(cookies: webCookies)
-        let (newDashboard, newAccount, keyResponse, modelResponse) = try await (
-            dashboardRequest, accountRequest, keysRequest, modelsRequest
+        async let usageRequest = try? api.accountUsage(cookies: cookies)
+        let (newDashboard, newAccount, keyResponse, modelResponse, newUsage) = try await (
+            dashboardRequest, accountRequest, keysRequest, modelsRequest, usageRequest
         )
+        guard webCookies == cookies, loginGeneration == generation else {
+            throw YConnectError.invalidCredential("账户已变更，请重试")
+        }
         dashboard = newDashboard
+        accountUsage = newUsage
+        spendingUpdatedAt = newUsage?.available == true && newUsage?.partial != true ? Date() : nil
+        lastSpendingAttempt = Date()
         account = newAccount
         accountKeys = keyResponse.keys
         accountModels = modelResponse.models
@@ -719,7 +831,30 @@ final class YConnectStore: ObservableObject {
         // The account catalog does not include wire-protocol capability data.
         // It must never overwrite a client-specific configuration selection;
         // `/api/key/models` is the authority for that decision.
-        lastRefreshAt = Date()
+        if webCookies == cookies, loginGeneration == generation { lastRefreshAt = Date() }
+    }
+
+    /// Shared by the widget and manager. Throttle across both windows, and
+    /// discard responses from a previous login instead of exposing its totals.
+    func refreshAccountSpendingIfNeeded() async {
+        guard isAccountMode, !isPreview, !isBusy, !isRefreshingSpending,
+              !webCookies.isEmpty,
+              lastSpendingAttempt.map({ Date().timeIntervalSince($0) >= 55 }) ?? true else { return }
+        let cookies = webCookies
+        let generation = loginGeneration
+        let spendingGeneration = UUID()
+        spendingRequestGeneration = spendingGeneration
+        isRefreshingSpending = true
+        lastSpendingAttempt = Date()
+        defer { isRefreshingSpending = false }
+        async let creditRequest = try? api.dashboard(cookies: cookies)
+        async let usageRequest = try? api.accountUsage(cookies: cookies)
+        let (newDashboard, newUsage) = await (creditRequest, usageRequest)
+        guard !Task.isCancelled, isAccountMode, webCookies == cookies, loginGeneration == generation,
+              spendingRequestGeneration == spendingGeneration else { return }
+        if let newDashboard { dashboard = newDashboard }
+        accountUsage = newUsage
+        spendingUpdatedAt = newDashboard != nil && newUsage?.available == true && newUsage?.partial != true ? Date() : nil
     }
 
     private func loadBusinessKey(_ key: String, persist: Bool) async throws {
@@ -733,6 +868,9 @@ final class YConnectStore: ObservableObject {
         webCookies = []
         standaloneAPIKey = key
         dashboard = nil
+        accountUsage = nil
+        spendingUpdatedAt = nil
+        lastSpendingAttempt = nil
         account = nil
         accountKeys = []
         accountModels = []
@@ -853,6 +991,9 @@ final class YConnectStore: ObservableObject {
 
     private func clearVisibleData() {
         dashboard = nil
+        accountUsage = nil
+        spendingUpdatedAt = nil
+        lastSpendingAttempt = nil
         account = nil
         accountKeys = []
         accountModels = []
@@ -894,7 +1035,7 @@ final class YConnectStore: ObservableObject {
             user: YakCoolUser(
                 id: 1001,
                 publicUUID: "preview-user",
-                displayName: "YakCool 用户",
+                displayName: "YAKCOOL 用户",
                 avatarURL: "",
                 isEnterprise: false,
                 enterpriseName: nil
@@ -915,6 +1056,14 @@ final class YConnectStore: ObservableObject {
                 webSearchCount: 23, activeDays: 12, lastUsedTime: "刚刚", createdAt: "2026-08-01"
             )
         )
+        let today = Date()
+        store.accountUsage = AccountUsageResponse(available: true, status: "synced",
+            from: AccountSpendingSnapshot.dayString(today.addingTimeInterval(-6 * 86_400)),
+            to: AccountSpendingSnapshot.dayString(today), rows: [
+                AccountUsageRow(date: AccountSpendingSnapshot.dayString(today), requestCount: 42, estimatedCount: 0, amountRMB: "3.6800000"),
+                AccountUsageRow(date: AccountSpendingSnapshot.dayString(today.addingTimeInterval(-86_400)), requestCount: 29, estimatedCount: 0, amountRMB: "2.4000000"),
+            ], partial: false)
+        store.spendingUpdatedAt = today
         store.accountKeys = [
             APIKeyRecord(
                 id: 11, label: "OpenCode", apiKey: "preview-key-never-persisted", last4: "8A2F",
@@ -961,6 +1110,8 @@ final class YConnectStore: ObservableObject {
         if authenticationMode == .apiKey {
             store.phase = .apiKey
             store.dashboard = nil
+            store.accountUsage = nil
+            store.spendingUpdatedAt = nil
             store.account = nil
             store.accountKeys = []
             store.accountModels = []

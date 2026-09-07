@@ -25,7 +25,7 @@ namespace YConnect.Views
         public string ExpandedSection => connection.ExpandedSection;
         public WidgetWindow(AppController controller)
         {
-            this.controller = controller; Title = "YConnect · 桌面连接"; Width = 400; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.Height;
+            this.controller = controller; Title = "Y CONNECT · 桌面连接"; Width = 400; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.Height;
             shell = Ui.Card(scroll, 14); shell.CornerRadius = new CornerRadius(20); shell.Margin = new Thickness(10); shell.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 4, Opacity = .16 }; Content = shell; motion = new Motion(shell);
             DragSurface.Attach(this, shell, () => { IsDragging = true; controller.Edge.CloseQuick(); }, controller.CommitWidgetDrag);
             PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) { Hide(); e.Handled = true; } };
@@ -41,9 +41,9 @@ namespace YConnect.Views
         public void Render()
         {
             var store = controller.Store;
-            var subtitle = store.Authenticated ? store.DisplayName + (store.Mode == "account" ? " · YakCool 账户" : " · API Key") : "让每一次连接，都刚刚好";
+            var subtitle = store.Authenticated ? store.DisplayName + (store.Mode == "account" ? " · YAKCOOL 账户" : " · API Key") : "让每一次连接，都刚刚好";
             var identity = Ui.Text(subtitle, 10, "Muted"); identity.MaxWidth = 175; identity.TextWrapping = TextWrapping.NoWrap; identity.TextTrimming = TextTrimming.CharacterEllipsis; identity.ToolTip = subtitle;
-            var brand = Ui.Row(Ui.Logo(30), new Border { Width = 9 }, Ui.Stack(Ui.Text("YConnect", 17, "Ink", true), identity));
+            var brand = Ui.Row(Ui.Logo(30), new Border { Width = 9 }, Ui.Stack(Ui.Text("Y CONNECT", 17, "Ink", true), identity));
             var refresh = Ui.IconButton("\uE72C", "刷新连接", "widget-refresh", async () => await store.Run(store.Refresh)); refresh.IsEnabled = store.Authenticated && !store.Busy;
             var pin = Ui.IconButton("\uE718", store.Preferences.Pinned ? "取消固定" : "固定在桌面", "widget-pin", () => { store.Preferences.Pinned = !store.Preferences.Pinned; store.SavePreferences(); });
             pin.Background = store.Preferences.Pinned ? Ui.Brush("AccentSoft") : Brushes.Transparent;
@@ -118,8 +118,8 @@ namespace YConnect.Views
             }
             else
             {
-                var button = Ui.AsyncButton("在 YConnect 内扫码  →", "login-account-connect", controller.LoginAccount, "Primary"); button.IsEnabled = !store.Busy; content.Children.Add(button); content.Children.Add(Ui.Gap(8));
-                content.Children.Add(Ui.Text("YakCool 官方微信登录 · 凭证由 Windows 加密保护", 10, "Muted"));
+                var button = Ui.AsyncButton("在 Y CONNECT 内扫码  →", "login-account-connect", controller.LoginAccount, "Primary"); button.IsEnabled = !store.Busy; content.Children.Add(button); content.Children.Add(Ui.Gap(8));
+                content.Children.Add(Ui.Text("YAKCOOL 官方微信登录 · 凭证由 Windows 加密保护", 10, "Muted"));
             }
             if (store.CanRetrySession) { content.Children.Add(Ui.Gap(8)); content.Children.Add(Ui.AsyncButton("重试已保存的登录", "login-retry-session", async () => await store.Run(store.RestoreSession))); }
             content.Children.Add(Ui.Gap(8)); return content;

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Protocol identifiers returned by YakCool's `/api/key/models` endpoint.
+/// Protocol identifiers returned by YAKCOOL's `/api/key/models` endpoint.
 ///
 /// This is intentionally a value type rather than a closed enum. The gateway
 /// may add protocols without requiring a YConnect update just to decode them.
@@ -98,7 +98,7 @@ enum ClientSupportCatalog {
         ClientCoverage(id: .claudeCode, name: "Claude Code", availability: .ready, note: "Anthropic Messages"),
         ClientCoverage(id: .claudeDesktop, name: "Claude Desktop", availability: .ready, note: "Anthropic Messages（Claude 模型）"),
         ClientCoverage(id: .codex, name: "Codex", availability: .ready, note: "Responses"),
-        ClientCoverage(id: .geminiCLI, name: "Gemini CLI", availability: .requiresBridge, note: "Gemini generateContent 非 YakCool 原生协议"),
+        ClientCoverage(id: .geminiCLI, name: "Gemini CLI", availability: .requiresBridge, note: "Gemini generateContent 非 YAKCOOL 原生协议"),
         ClientCoverage(id: .grokBuild, name: "Grok Build", availability: .ready, note: "Responses / Messages / Chat"),
         ClientCoverage(id: .openCode, name: "OpenCode", availability: .ready, note: "Chat Completions"),
         ClientCoverage(id: .openClaw, name: "OpenClaw", availability: .ready, note: "Responses / Messages / Chat"),
@@ -129,6 +129,14 @@ struct ClientApplyRequest {
     let apiKey: String
     let models: [ClientModelOption]
     let selectedModelID: String
+    let contextWindow: Int?
+
+    init(apiKey: String, models: [ClientModelOption], selectedModelID: String, contextWindow: Int? = nil) {
+        self.apiKey = apiKey
+        self.models = models
+        self.selectedModelID = selectedModelID
+        self.contextWindow = contextWindow
+    }
 }
 
 struct ClientConfigurationTarget: Hashable, Sendable {
@@ -361,7 +369,7 @@ final class OpenCodeClientConfigurator: ClientConfiguring {
         else { state = .invalid }
 
         var issues: [String] = []
-        if status.providerConfigured && !status.secretReferenceIsSafe { issues.append("API Key 引用不是 YConnect 管理的安全文件") }
+        if status.providerConfigured && !status.secretReferenceIsSafe { issues.append("API Key 引用不是 Y CONNECT 管理的安全文件") }
         if status.secretExists && !status.secretPermissionsAreSecure { issues.append("密钥文件权限不是 0600") }
         return ClientConfigurationStatus(
             clientID: descriptor.id,

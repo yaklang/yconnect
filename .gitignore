@@ -26,3 +26,5 @@ windows/.test-output/
 windows/**/bin/
 windows/**/obj/
 windows/Assets/*.ico
+!windows/Assets/yconnect.ico
+!windows/Assets/yconnect-tray.ico

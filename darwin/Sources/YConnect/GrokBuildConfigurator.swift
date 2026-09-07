@@ -1,6 +1,6 @@
 import Foundation
 
-/// Configures xAI's Grok Build CLI with one YakCool catalog entry. A model's
+/// Configures xAI's Grok Build CLI with one YAKCOOL catalog entry. A model's
 /// advertised protocols determine the exact wire backend, with the more capable
 /// Responses API preferred over Messages and Chat Completions.
 final class GrokBuildClientConfigurator: ClientConfiguring {
@@ -74,7 +74,8 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
             let configuration = try self.desiredConfiguration(
                 existing: state.data(for: Self.configurationTargetID),
                 selected: selected,
-                backend: backend
+                backend: backend,
+                contextWindow: request.contextWindow
             )
             return [
                 .write(targetID: Self.credentialTargetID, data: credential),
@@ -128,7 +129,8 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
             let configuration = try self.desiredConfiguration(
                 existing: state.data(for: Self.configurationTargetID),
                 selected: selected,
-                backend: backend
+                backend: backend,
+                contextWindow: request.contextWindow
             )
             return [
                 .write(targetID: Self.credentialTargetID, data: expectedCredential),
@@ -140,7 +142,8 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
                 expectedModelID: selected.id,
                 expectedName: selected.name,
                 expectedBackend: backend,
-                expectedCredential: expectedCredential
+                expectedCredential: expectedCredential,
+                expectedContextWindow: request.contextWindow
             )
         })
         return mappedResult(result, modelID: selected.id, restored: false)
@@ -177,7 +180,7 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
             let selectedModel = document.string(table: modelTable, key: "model")
             let backend = document.string(table: modelTable, key: "api_backend")
             let allowedModelAssignments: [String: Set<String>] = [
-                modelTable: ["model", "base_url", "name", "api_backend", "auth_provider"],
+                modelTable: ["model", "base_url", "name", "api_backend", "auth_provider", "context_window"],
             ]
             let allowedAuthAssignments: [String: Set<String>] = [
                 authTable: ["command", "args", "token_ttl_secs", "timeout_secs"],
@@ -203,11 +206,14 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
                 document.hasAssignment(table: modelTable, key: $0)
             }
             let backendIsSupported = ["responses", "messages", "chat_completions"].contains(backend)
+            let contextIsValid = !document.hasAssignment(table: modelTable, key: "context_window")
+                || document.integer(table: modelTable, key: "context_window").map(ContextWindowSetting.supportedRange.contains) == true
             let modelIsCorrect = selectedAlias == Self.modelAlias
                 && selectedModel?.isEmpty == false
                 && document.string(table: modelTable, key: "base_url") == Self.gatewayV1
                 && document.string(table: modelTable, key: "name")?.isEmpty == false
                 && backendIsSupported
+                && contextIsValid
                 && document.string(table: modelTable, key: "auth_provider") == Self.authProviderID
             let configured = hasManagedMarker
                 && modelIsCorrect
@@ -218,16 +224,16 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
 
             var issues: [String] = []
             if hasManagedMarker && !modelIsCorrect {
-                issues.append("Grok Build 的 YakCool 模型配置不完整或协议无效")
+                issues.append("Grok Build 的 YAKCOOL 模型配置不完整或协议无效")
             }
             if hasManagedMarker && hasInlineCredential {
-                issues.append("Grok Build 的 YakCool 模型含有内联认证字段")
+                issues.append("Grok Build 的 YAKCOOL 模型含有内联认证字段")
             }
             if hasManagedMarker && hasManagedShapeConflict {
-                issues.append("Grok Build 的 YakCool 配置含有额外或冲突的子表、数组表或 dotted 配置")
+                issues.append("Grok Build 的 YAKCOOL 配置含有额外或冲突的子表、数组表或 dotted 配置")
             }
             if hasManagedMarker && !safeReference {
-                issues.append("Grok Build 未使用 YConnect 管理的命名认证提供方")
+                issues.append("Grok Build 未使用 Y CONNECT 管理的命名认证提供方")
             }
             if safeReference && !credentialSecure {
                 issues.append("Grok Build 密钥文件缺失或权限不是 0600")
@@ -276,6 +282,7 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
 
     private func validatedSelection(_ request: ClientApplyRequest) throws -> ClientModelOption {
         try TOMLClientConfiguratorSupport.validateAPIKey(request.apiKey)
+        try ContextWindowSetting.validate(request.contextWindow)
         guard let selected = compatibleModels(from: request.models).first(where: {
             $0.id == request.selectedModelID
         }) else {
@@ -296,19 +303,24 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
     private func desiredConfiguration(
         existing: Data?,
         selected: ClientModelOption,
-        backend: String
+        backend: String,
+        contextWindow: Int?
     ) throws -> Data {
         var editor = try existing.map(TOMLConfigurationEditor.init(data:)) ?? TOMLConfigurationEditor()
         try editor.upsert(key: "default", value: .string(Self.modelAlias), inTable: "models")
         try editor.removeManagedSubtree(named: "model.\(Self.modelAlias)")
         try editor.removeManagedSubtree(named: "auth_provider.\(Self.authProviderID)")
-        try editor.replaceManagedTable(named: "model.\(Self.modelAlias)", entries: [
+        var modelEntries = [
             TOMLConfigurationEntry("model", .string(selected.id)),
             TOMLConfigurationEntry("base_url", .string(Self.gatewayV1)),
-            TOMLConfigurationEntry("name", .string("YakCool · \(selected.name)")),
+            TOMLConfigurationEntry("name", .string("YAKCOOL · \(selected.name)")),
             TOMLConfigurationEntry("api_backend", .string(backend)),
             TOMLConfigurationEntry("auth_provider", .string(Self.authProviderID)),
-        ])
+        ]
+        if let contextWindow {
+            modelEntries.append(TOMLConfigurationEntry("context_window", .integer(contextWindow)))
+        }
+        try editor.replaceManagedTable(named: "model.\(Self.modelAlias)", entries: modelEntries)
         try editor.replaceManagedTable(named: "auth_provider.\(Self.authProviderID)", entries: [
             TOMLConfigurationEntry("command", .string("/bin/cat")),
             TOMLConfigurationEntry("args", .stringArray([secretURL.path])),
@@ -323,7 +335,8 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
         expectedModelID: String,
         expectedName: String,
         expectedBackend: String,
-        expectedCredential: Data
+        expectedCredential: Data,
+        expectedContextWindow: Int?
     ) throws {
         guard let configuration = state.data(for: Self.configurationTargetID),
               state.file(Self.configurationTargetID)?.exists == true,
@@ -341,7 +354,7 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
         let modelTable = "model.\(Self.modelAlias)"
         let authTable = "auth_provider.\(Self.authProviderID)"
         let allowedModelAssignments: [String: Set<String>] = [
-            modelTable: ["model", "base_url", "name", "api_backend", "auth_provider"],
+            modelTable: ["model", "base_url", "name", "api_backend", "auth_provider", "context_window"],
         ]
         let allowedAuthAssignments: [String: Set<String>] = [
             authTable: ["command", "args", "token_ttl_secs", "timeout_secs"],
@@ -349,9 +362,11 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
         guard document.string(table: "models", key: "default") == Self.modelAlias,
               document.string(table: modelTable, key: "model") == expectedModelID,
               document.string(table: modelTable, key: "base_url") == Self.gatewayV1,
-              document.string(table: modelTable, key: "name") == "YakCool · \(expectedName)",
+              document.string(table: modelTable, key: "name") == "YAKCOOL · \(expectedName)",
               document.string(table: modelTable, key: "api_backend") == expectedBackend,
               document.string(table: modelTable, key: "auth_provider") == Self.authProviderID,
+              document.integer(table: modelTable, key: "context_window") == expectedContextWindow,
+              document.hasAssignment(table: modelTable, key: "context_window") == (expectedContextWindow != nil),
               document.string(table: authTable, key: "command") == "/bin/cat",
               document.stringArray(table: authTable, key: "args") == [secretURL.path],
               document.integer(table: authTable, key: "token_ttl_secs") == Self.authTokenTTLSeconds,
@@ -391,8 +406,8 @@ final class GrokBuildClientConfigurator: ClientConfiguring {
                 : "已恢复最近一次 Grok Build 配置备份"
         } else {
             message = action == .unchanged
-                ? "Grok Build 已在使用所选 YakCool 模型"
-                : "已将 Grok Build 切换到 YakCool / \(modelID ?? "")"
+                ? "Grok Build 已在使用所选 YAKCOOL 模型"
+                : "已将 Grok Build 切换到 YAKCOOL / \(modelID ?? "")"
         }
         return ClientConfigurationResult(
             action: action,

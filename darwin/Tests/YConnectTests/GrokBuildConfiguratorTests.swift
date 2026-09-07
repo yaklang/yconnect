@@ -66,7 +66,7 @@ final class GrokBuildConfiguratorTests: XCTestCase {
         [model.yakcool]\r
         model = "old-model"\r
         base_url = "https://old.invalid/v1"\r
-        name = "Old YakCool"\r
+        name = "Old YAKCOOL"\r
         api_backend = "chat_completions"\r
         api_key = "old-inline-api-key"\r
         env_key = "OLD_GROK_KEY"\r
@@ -175,7 +175,7 @@ final class GrokBuildConfiguratorTests: XCTestCase {
         XCTAssertEqual(document.string(table: "models", key: "web_search"), "keep-search")
         XCTAssertEqual(document.string(table: "model.yakcool", key: "model"), modelID)
         XCTAssertEqual(document.string(table: "model.yakcool", key: "base_url"), GrokBuildClientConfigurator.gatewayV1)
-        XCTAssertEqual(document.string(table: "model.yakcool", key: "name"), "YakCool · \(modelName)")
+        XCTAssertEqual(document.string(table: "model.yakcool", key: "name"), "YAKCOOL · \(modelName)")
         XCTAssertEqual(document.string(table: "model.yakcool", key: "api_backend"), "messages")
         XCTAssertEqual(document.string(table: "model.yakcool", key: "auth_provider"), "yconnect")
         XCTAssertFalse(document.hasAssignment(table: "model.yakcool", key: "api_key"))
@@ -254,7 +254,7 @@ final class GrokBuildConfiguratorTests: XCTestCase {
         [model.yakcool]
         model = "model"
         base_url = "https://aibalance.yaklang.com/v1"
-        name = "YakCool · Model"
+        name = "YAKCOOL · Model"
         api_backend = "responses"
         auth_provider = "yconnect"
 
@@ -280,7 +280,7 @@ final class GrokBuildConfiguratorTests: XCTestCase {
         [model.yakcool]
         model = "model"
         base_url = "https://aibalance.yaklang.com/v1"
-        name = "YakCool · Model"
+        name = "YAKCOOL · Model"
         api_backend = "responses"
         auth_provider = "yconnect"
         http_headers.Authorization = "Bearer stale-static-secret"

@@ -5,7 +5,7 @@
   <SolidColorBrush x:Key="Ink" Color="#292E2C" />
   <SolidColorBrush x:Key="Muted" Color="#737C77" />
   <SolidColorBrush x:Key="Line" Color="#E4E6E0" />
-  <SolidColorBrush x:Key="Accent" Color="#B96953" />
+  <SolidColorBrush x:Key="Accent" Color="#B86A4B" />
   <SolidColorBrush x:Key="AccentSoft" Color="#F7EAE3" />
   <SolidColorBrush x:Key="Green" Color="#3B7860" />
   <SolidColorBrush x:Key="GreenSoft" Color="#EBF3ED" />

@@ -6,13 +6,23 @@ import SwiftUI
 enum YConnectMain {
     @MainActor
     static func main() {
+        if let manifest = argument(after: "--run-agent-session") {
+            exit(AgentSessionRunner.run(manifestURL: URL(fileURLWithPath: manifest)))
+        }
         let application = NSApplication.shared
+        if CommandLine.arguments.contains("--dark"), CommandLine.arguments.contains(where: { $0.hasPrefix("--render-") }) {
+            application.appearance = NSAppearance(named: .darkAqua)
+        }
         if let output = argument(after: "--render-widget") {
             renderWidget(application: application, output: output)
             return
         }
         if let output = argument(after: "--render-manager") {
             renderManager(application: application, output: output)
+            return
+        }
+        if let output = argument(after: "--render-recharge") {
+            renderRecharge(application: application, output: output)
             return
         }
         if let output = argument(after: "--render-edge-dock") {
@@ -56,10 +66,13 @@ enum YConnectMain {
             includeAPIKeys: !CommandLine.arguments.contains("--without-api-keys"),
             installedClientIDs: installedClientIDs,
             operationMessage: CommandLine.arguments.contains("--with-operation-message")
-                ? "“YConnect-4”已删除"
+                ? "“Y CONNECT-4”已删除"
                 : nil
         )
         let presentation = WidgetPresentationState()
+        if let maximumHeight = argument(after: "--maximum-height").flatMap(Double.init), maximumHeight >= 300 {
+            presentation.maximumHeight = maximumHeight
+        }
         presentation.showsConnectionURLs = CommandLine.arguments.contains("--expanded-urls")
         presentation.showsModels = CommandLine.arguments.contains("--expanded-models")
         let view = WidgetView(
@@ -88,6 +101,8 @@ enum YConnectMain {
         let environment = AppEnvironment.preview(at: scratch)
         let store = YConnectStore.preview(
             environment: environment,
+            authenticated: !CommandLine.arguments.contains("--signed-out"),
+            authenticationMode: CommandLine.arguments.contains("--api-key-mode") ? .apiKey : .account,
             installedClientIDs: detectedClientIDsForPreview(environment: environment)
         )
         if let clientName = argument(after: "--client") {
@@ -96,6 +111,7 @@ enum YConnectMain {
                 store.selectedClientID = requested
             }
         }
+        if let contextWindow = argument(after: "--context-window") { store.contextWindowInput = contextWindow }
         let navigation = ManagerNavigation()
         if let sectionName = argument(after: "--section"),
            let section = ManagerSection(rawValue: sectionName == "openCode" ? "clients" : sectionName) {
@@ -113,6 +129,27 @@ enum YConnectMain {
             fputs("manager render failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    @MainActor
+    private static func renderRecharge(application: NSApplication, output: String) {
+        application.setActivationPolicy(.prohibited)
+        application.finishLaunching()
+        let session = RechargeSession(api: RechargePreviewAPI(), cookies: [], accountName: "预览账户",
+                                      currentAccount: { true })
+        if CommandLine.arguments.contains("--with-payment-order") {
+            var ready = false
+            Task { await session.create(amountText: "50", channel: .wechat); ready = true }
+            while !ready { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        }
+        let view = VStack(alignment: .leading, spacing: 18) {
+            Text("账户充值").font(.title.bold())
+            Text("演示数据 · 仅用于界面预览，不可付款").font(.caption).foregroundStyle(.orange)
+            RechargeView(session: session, balance: "¥396.2", beginAccountLogin: {}, startAnother: {})
+        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor)).tint(Brand.accent)
+        do { try render(view: view, size: NSSize(width: 600, height: 760), output: output) }
+        catch { fputs("recharge render failed\n", stderr); exit(1) }
     }
 
     @MainActor
@@ -176,5 +213,14 @@ enum YConnectMain {
             fputs("tray icon render failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+}
+
+private struct RechargePreviewAPI: RechargeAPI {
+    func createPayment(amountCents: Int64, channel: PaymentChannel, cookies: [StoredWebCookie]) async throws -> PaymentOrder {
+        PaymentOrder(orderNo: "YC20260907000000PREVIEW", codeURL: "https://yakcool.com/#yconnect-preview-no-payment", channel: channel.rawValue)
+    }
+    func paymentStatus(orderNo: String, cookies: [StoredWebCookie]) async throws -> PaymentOrderStatus {
+        PaymentOrderStatus(orderNo: orderNo, amountCents: 5000, status: "pending", verificationStatus: "")
     }
 }

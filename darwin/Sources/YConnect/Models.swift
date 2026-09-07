@@ -1,7 +1,7 @@
 import Foundation
 
 enum Brand {
-    static let accentHex = 0xC76A55
+    static let accentHex = 0xB86A4B
 }
 
 enum AuthenticationMode: String, Codable, CaseIterable, Identifiable {
