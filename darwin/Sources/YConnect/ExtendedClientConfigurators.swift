@@ -744,7 +744,7 @@ private struct HermesYAMLDocument {
                 }
                 guard child.key != "<<" else {
                     throw ClientConfigurationError.invalidConfiguration(
-                        "Hermes config.yaml 的 YConnect 配置不能使用 YAML merge key"
+                        "Hermes config.yaml 的 Y CONNECT 配置不能使用 YAML merge key"
                     )
                 }
                 if path == ["providers"], child.key != "yakcool" { continue }
@@ -765,7 +765,7 @@ private struct HermesYAMLDocument {
                    ["[", "{", "&", "*", "!", "|", ">"]
                     .contains(where: value.hasPrefix) {
                     throw ClientConfigurationError.invalidConfiguration(
-                        "Hermes config.yaml 的 YConnect 配置不能使用 flow、anchor、tag 或块标量"
+                        "Hermes config.yaml 的 Y CONNECT 配置不能使用 flow、anchor、tag 或块标量"
                     )
                 }
             }
@@ -903,7 +903,7 @@ private struct HermesYAMLDocument {
 
 final class ClaudeDesktopClientConfigurator: ClientConfiguring {
     static let profileID = "9d254f75-6d3a-4b8c-a0e8-4d3a4f4d42f7"
-    static let profileName = "YakCool (YConnect)"
+    static let profileName = "YAKCOOL (Y CONNECT)"
     static let helperTTLSeconds = 300
     static let helperTimeoutSeconds = 5
 
@@ -1118,11 +1118,11 @@ final class ClaudeDesktopClientConfigurator: ClientConfiguring {
                     && helperConfigured && helperSecure && secretSecure && !inlineCredential
 
                 var issues: [String] = []
-                if hasMarker && !active { issues.append("Claude Desktop 未启用 YConnect 配置档案") }
-                if hasMarker && !entryPresent { issues.append("Claude Desktop 配置库缺少 YConnect 条目") }
-                if hasMarker && !profileValid { issues.append("Claude Desktop YakCool 配置或模型无效") }
+                if hasMarker && !active { issues.append("Claude Desktop 未启用 Y CONNECT 配置档案") }
+                if hasMarker && !entryPresent { issues.append("Claude Desktop 配置库缺少 Y CONNECT 条目") }
+                if hasMarker && !profileValid { issues.append("Claude Desktop YAKCOOL 配置或模型无效") }
                 if inlineCredential { issues.append("Claude Desktop 配置含有内联 API Key") }
-                if hasMarker && !helperConfigured { issues.append("Claude Desktop 未使用 YConnect credential helper") }
+                if hasMarker && !helperConfigured { issues.append("Claude Desktop 未使用 Y CONNECT credential helper") }
                 if helperConfigured && !helperSecure { issues.append("Claude Desktop helper 缺失、内容漂移或权限不是 0700") }
                 if helperConfigured && !secretSecure { issues.append("Claude Desktop 密钥文件缺失或权限不是 0600") }
 
@@ -1352,8 +1352,8 @@ final class ClaudeDesktopClientConfigurator: ClientConfiguring {
                 : "已恢复最近一次 Claude Desktop 配置备份"
         } else {
             message = action == .unchanged
-                ? "Claude Desktop 已在使用所选 YakCool 模型"
-                : "已将 Claude Desktop 切换到 YakCool / \(modelID ?? "")"
+                ? "Claude Desktop 已在使用所选 YAKCOOL 模型"
+                : "已将 Claude Desktop 切换到 YAKCOOL / \(modelID ?? "")"
         }
         return ClientConfigurationResult(
             action: action,
@@ -1595,11 +1595,11 @@ final class OpenClawClientConfigurator: ClientConfiguring {
                     && !inlineCredential
 
                 var issues: [String] = []
-                if hasMarker && !endpointValid { issues.append("OpenClaw YakCool 协议或端点无效") }
-                if hasMarker && !modelValid { issues.append("OpenClaw 默认模型未指向 YakCool 模型目录") }
-                if inlineCredential { issues.append("OpenClaw YakCool 配置含有内联凭据") }
+                if hasMarker && !endpointValid { issues.append("OpenClaw YAKCOOL 协议或端点无效") }
+                if hasMarker && !modelValid { issues.append("OpenClaw 默认模型未指向 YAKCOOL 模型目录") }
+                if inlineCredential { issues.append("OpenClaw YAKCOOL 配置含有内联凭据") }
                 if hasMarker && (!referenceValid || !secretProviderValid) {
-                    issues.append("OpenClaw 未使用 YConnect file SecretRef")
+                    issues.append("OpenClaw 未使用 Y CONNECT file SecretRef")
                 }
                 if referenceValid && !credentialSecure {
                     issues.append("OpenClaw 密钥文件缺失或权限不是 0600")
@@ -1791,7 +1791,7 @@ final class OpenClawClientConfigurator: ClientConfiguring {
         if let existing {
             guard let array = existing as? [Any],
                   array.allSatisfy({ $0 is [String: Any] }) else {
-                throw ClientConfigurationError.invalidConfiguration("OpenClaw YakCool models 必须是对象数组")
+                throw ClientConfigurationError.invalidConfiguration("OpenClaw YAKCOOL models 必须是对象数组")
             }
             oldEntries = array.compactMap { $0 as? [String: Any] }
         } else {
@@ -1866,8 +1866,8 @@ final class OpenClawClientConfigurator: ClientConfiguring {
                 : "已恢复最近一次 OpenClaw 配置备份"
         } else {
             message = action == .unchanged
-                ? "OpenClaw 已在使用所选 YakCool 模型"
-                : "已将 OpenClaw 切换到 YakCool / \(modelID ?? "")"
+                ? "OpenClaw 已在使用所选 YAKCOOL 模型"
+                : "已将 OpenClaw 切换到 YAKCOOL / \(modelID ?? "")"
         }
         return ClientConfigurationResult(
             action: action,
@@ -2131,12 +2131,12 @@ final class HermesClientConfigurator: ClientConfiguring {
                     && !hasExtraHeaders
 
                 var issues: [String] = []
-                if hasMarker && !endpointValid { issues.append("Hermes YakCool 协议或端点无效") }
+                if hasMarker && !endpointValid { issues.append("Hermes YAKCOOL 协议或端点无效") }
                 if hasMarker && !selectionValid { issues.append("Hermes 默认模型配置不一致") }
-                if hasInline { issues.append("Hermes YakCool provider 含有内联 API Key") }
-                if hasConflictingEnv { issues.append("Hermes YakCool provider 仍含 key_env") }
-                if hasExtraHeaders { issues.append("Hermes YakCool provider 仍含 extra_headers") }
-                if hasMarker && !helperConfigured { issues.append("Hermes 未使用 YConnect key_cmd helper") }
+                if hasInline { issues.append("Hermes YAKCOOL provider 含有内联 API Key") }
+                if hasConflictingEnv { issues.append("Hermes YAKCOOL provider 仍含 key_env") }
+                if hasExtraHeaders { issues.append("Hermes YAKCOOL provider 仍含 extra_headers") }
+                if hasMarker && !helperConfigured { issues.append("Hermes 未使用 Y CONNECT key_cmd helper") }
                 if helperConfigured && !helperSecure { issues.append("Hermes helper 缺失、内容漂移或权限不是 0700") }
                 if helperConfigured && !credentialSecure { issues.append("Hermes 密钥文件缺失或权限不是 0600") }
 
@@ -2318,8 +2318,8 @@ final class HermesClientConfigurator: ClientConfiguring {
                 : "已恢复最近一次 Hermes 配置备份"
         } else {
             message = action == .unchanged
-                ? "Hermes 已在使用所选 YakCool 模型"
-                : "已将 Hermes 切换到 YakCool / \(modelID ?? "")"
+                ? "Hermes 已在使用所选 YAKCOOL 模型"
+                : "已将 Hermes 切换到 YAKCOOL / \(modelID ?? "")"
         }
         return ClientConfigurationResult(
             action: action,

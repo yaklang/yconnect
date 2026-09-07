@@ -212,9 +212,9 @@ final class PiClientConfigurator: ClientConfiguring {
                 && !configuredModels.isEmpty
                 && selectedModel.map(configuredModels.contains) == true
             var issues: [String] = []
-            if provider != nil && !commandIsSafe { issues.append("Pi 的 YakCool credential 不是 YConnect 管理的命令引用") }
+            if provider != nil && !commandIsSafe { issues.append("Pi 的 YAKCOOL credential 不是 Y CONNECT 管理的命令引用") }
             if commandIsSafe && !secretSecure { issues.append("Pi 密钥文件缺失或权限不是 0600") }
-            if active && !providerIsValid { issues.append("Pi 的 YakCool endpoint、协议或默认模型已发生变化") }
+            if active && !providerIsValid { issues.append("Pi 的 YAKCOOL endpoint、协议或默认模型已发生变化") }
             return ClientConfigurationStatus(
                 clientID: descriptor.id,
                 state: active
@@ -364,7 +364,7 @@ final class PiClientConfigurator: ClientConfiguring {
         }
         let message: String
         if restored { message = action == .unchanged ? "Pi 配置已是最近备份状态" : "已恢复最近一次 Pi 配置备份" }
-        else { message = action == .unchanged ? "Pi 已在使用所选 YakCool 模型" : "已将 Pi 切换到 YakCool / \(modelID ?? "")" }
+        else { message = action == .unchanged ? "Pi 已在使用所选 YAKCOOL 模型" : "已将 Pi 切换到 YAKCOOL / \(modelID ?? "")" }
         return ClientConfigurationResult(
             action: action,
             clientID: descriptor.id,
@@ -534,10 +534,10 @@ final class ClaudeCodeClientConfigurator: ClientConfiguring {
                 && !inlineCredentialConflict
                 && cloudConflicts.isEmpty
             var issues: [String] = []
-            if endpointConfigured && !helperConfigured { issues.append("Claude Code apiKeyHelper 不是 YConnect 管理的安全引用") }
+            if endpointConfigured && !helperConfigured { issues.append("Claude Code apiKeyHelper 不是 Y CONNECT 管理的安全引用") }
             if helperConfigured && !secretSecure { issues.append("Claude Code 密钥文件缺失或权限不是 0600") }
             if inlineCredentialConflict { issues.append("Claude Code 存在会覆盖 apiKeyHelper 的内联 Anthropic credential") }
-            if !cloudConflicts.isEmpty { issues.append("Claude Code 启用了会绕过 YakCool 的云端 provider：\(cloudConflicts.joined(separator: ", "))") }
+            if !cloudConflicts.isEmpty { issues.append("Claude Code 启用了会绕过 YAKCOOL 的云端 provider：\(cloudConflicts.joined(separator: ", "))") }
             if endpointConfigured && !modelIsConsistent { issues.append("Claude Code 的默认模型配置不一致") }
             let credentialProtection: CredentialProtection
             if inlineCredentialConflict {
@@ -633,7 +633,7 @@ final class ClaudeCodeClientConfigurator: ClientConfiguring {
         let changed = result.changedTargetIDs.compactMap { $0 == "credential" ? secretURL : ($0 == "settings" ? settingsURL : nil) }
         let message: String
         if restored { message = action == .unchanged ? "Claude Code 配置已是最近备份状态" : "已恢复最近一次 Claude Code 配置备份" }
-        else { message = action == .unchanged ? "Claude Code 已在使用所选 YakCool 模型" : "已将 Claude Code 切换到 YakCool / \(modelID ?? "")" }
+        else { message = action == .unchanged ? "Claude Code 已在使用所选 YAKCOOL 模型" : "已将 Claude Code 切换到 YAKCOOL / \(modelID ?? "")" }
         return ClientConfigurationResult(action: action, clientID: descriptor.id, changedTargets: changed, backupURL: result.backupURL, modelID: modelID, message: message)
     }
 

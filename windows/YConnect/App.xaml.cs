@@ -48,7 +48,7 @@ namespace YConnect
             catch (Exception error)
             {
                 var file = Path.Combine(Path.GetTempPath(), "yconnect-startup-error.txt"); File.WriteAllText(file, error.ToString());
-                if (!e.Args.Contains("--smoke") && !e.Args.Contains("--verify-login") && !e.Args.Contains("--verify-recharge")) MessageBox.Show("YConnect 启动失败：" + error.Message, "YConnect", MessageBoxButton.OK, MessageBoxImage.Error); Shutdown(1);
+                if (!e.Args.Contains("--smoke") && !e.Args.Contains("--verify-login") && !e.Args.Contains("--verify-recharge")) MessageBox.Show("Y CONNECT 启动失败：" + error.Message, "Y CONNECT", MessageBoxButton.OK, MessageBoxImage.Error); Shutdown(1);
             }
         }
         protected override void OnExit(ExitEventArgs e) { activation?.Dispose(); instance?.Dispose(); base.OnExit(e); }

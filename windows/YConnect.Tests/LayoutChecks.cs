@@ -74,7 +74,7 @@ internal static class LayoutChecks
             var manager = app.Manager; Require(!manager.SidebarCollapsed, "Manager must start expanded, even with a previously collapsed preference.");
             var root = (FrameworkElement)manager.Content;
             var share = app.BuildAccessText("gpt-5.4");
-            Require(share.Contains(DemoApi.Key) && share.Contains(YakCoolApi.Gateway + "/v1/responses") && share.Contains("YakCool:") && DemoApi.Models.All(m => share.Contains(m.Name) && share.Contains(m.Id)), "Complete copy payload must include key, URLs, brand and every model.");
+            Require(share.Contains(DemoApi.Key) && share.Contains(YakCoolApi.Gateway + "/v1/responses") && share.Contains("YAKCOOL:") && DemoApi.Models.All(m => share.Contains(m.Name) && share.Contains(m.Id)), "Complete copy payload must include key, URLs, brand and every model.");
             store.ProbeQuality("gpt-5.4", "responses", true).GetAwaiter().GetResult();
             Require(store.QualityChecks.Count == 15 && store.QualityChecks.All(x => new[] { "passed", "unsupported" }.Contains(x.State)), "Demo quality profile did not complete all capability checks.");
             foreach (var theme in new[] { "light", "dark" })

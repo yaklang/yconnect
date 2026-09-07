@@ -84,10 +84,9 @@ namespace YConnect.Views
         }
         public static Border Logo(double size = 38)
         {
-            var geometry = new PathGeometry(new[] { new PathFigure(new Point(11, 11), new PathSegment[] { new LineSegment(new Point(19, 21), true), new LineSegment(new Point(27, 11), true) }, false), new PathFigure(new Point(19, 21), new PathSegment[] { new LineSegment(new Point(19, 29), true) }, false) });
-            var mark = new System.Windows.Shapes.Path { Data = geometry, Stroke = Brushes.White, StrokeThickness = 3.1, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round };
-            var canvas = new Canvas { Width = 38, Height = 38 }; canvas.Children.Add(mark);
-            return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size * .27), Background = new LinearGradientBrush(Color.FromRgb(201, 120, 97), Color.FromRgb(173, 87, 66), 90), Child = new Viewbox { Child = canvas } };
+            var mark = new System.Windows.Shapes.Path { Data = Geometry.Parse("F1 M806.668 433.586C788.436 369.392 749.804 312.902 696.629 272.68C643.454 232.459 578.636 210.699 512 210.699C445.365 210.699 380.547 232.459 327.372 272.68C274.197 312.902 235.565 369.392 217.332 433.586C176.66 450.435 143.084 480.894 122.328 519.768C101.573 558.642 94.9241 603.523 103.516 646.759C112.108 689.994 135.408 728.905 169.443 756.857C203.478 784.808 246.141 800.068 290.154 800.035H733.847C777.86 800.068 820.523 784.808 854.558 756.857C888.593 728.905 911.893 689.994 920.485 646.759C929.077 603.523 922.428 558.642 901.672 519.768C880.917 480.894 847.34 450.435 806.668 433.586ZM436.291 549.622C436.291 553.364 434.807 556.952 432.165 559.598C429.524 562.244 425.941 563.73 422.206 563.73H397.556C393.82 563.73 390.238 562.244 387.596 559.598C384.954 556.952 383.47 553.364 383.47 549.622V422.652C383.47 418.91 384.954 415.322 387.596 412.676C390.238 410.031 393.82 408.544 397.556 408.544H422.206C425.941 408.544 429.524 410.031 432.165 412.676C434.807 415.322 436.291 418.91 436.291 422.652V549.622ZM563.06 704.808H460.941V678.356C460.941 664.792 466.32 651.784 475.896 642.194C485.471 632.603 498.458 627.215 512 627.215C525.542 627.215 538.53 632.603 548.105 642.194C557.681 651.784 563.06 664.792 563.06 678.356V704.808ZM640.53 549.622C640.53 553.364 639.046 556.952 636.405 559.598C633.763 562.244 630.181 563.73 626.445 563.73H601.795C598.06 563.73 594.477 562.244 591.835 559.598C589.194 556.952 587.71 553.364 587.71 549.622V422.652C587.71 418.91 589.194 415.322 591.835 412.676C594.477 410.031 598.06 408.544 601.795 408.544H626.445C630.181 408.544 633.763 410.031 636.405 412.676C639.046 415.322 640.53 418.91 640.53 422.652V549.622Z"), Fill = new SolidColorBrush(Color.FromRgb(184, 106, 75)), RenderTransform = new TranslateTransform(-100, -211) };
+            var canvas = new Canvas { Width = 824, Height = 589 }; canvas.Children.Add(mark);
+            return new Border { Width = size, Height = size, Child = new Viewbox { Child = canvas, Stretch = Stretch.Uniform } };
         }
         public static Border AppMark(ClientDescriptor descriptor, double size = 35)
         {
@@ -135,11 +134,11 @@ namespace YConnect.Views
             if (!string.IsNullOrEmpty(store.Message)) return Notice(store.Message);
             return new Border();
         }
-        public static bool HasFeedback(YConnectStore store) => !string.IsNullOrEmpty(store.Error) || !string.IsNullOrEmpty(store.Warning) || (!string.IsNullOrEmpty(store.Message) && !new[] { "YakCool 账户已安全连接", "API Key 已安全连接", "信息已刷新", "已退出登录" }.Contains(store.Message));
+        public static bool HasFeedback(YConnectStore store) => !string.IsNullOrEmpty(store.Error) || !string.IsNullOrEmpty(store.Warning) || (!string.IsNullOrEmpty(store.Message) && !new[] { "YAKCOOL 账户已安全连接", "API Key 已安全连接", "信息已刷新", "已退出登录" }.Contains(store.Message));
         public static void SetTheme(string theme)
         {
             var dark = theme == "dark";
-            var values = dark ? new[] { "#20201F", "#292928", "#323230", "#F1EEE8", "#ACA8A1", "#42413E", "#D9917C", "#43332D", "#8EC8A3", "#2B3930", "#EC9891" } : new[] { "#F6F4F0", "#FFFFFF", "#F7F5F1", "#302D29", "#78746D", "#EAE6DF", "#C76A55", "#F8EBE5", "#32805A", "#EAF3EC", "#B34949" };
+            var values = dark ? new[] { "#20201F", "#292928", "#323230", "#F1EEE8", "#ACA8A1", "#42413E", "#D9917C", "#43332D", "#8EC8A3", "#2B3930", "#EC9891" } : new[] { "#F6F4F0", "#FFFFFF", "#F7F5F1", "#302D29", "#78746D", "#EAE6DF", "#B86A4B", "#F8EBE5", "#32805A", "#EAF3EC", "#B34949" };
             var names = new[] { "Page", "Surface", "SurfaceAlt", "Ink", "Muted", "Line", "Accent", "AccentSoft", "Green", "GreenSoft", "Danger" };
             for (var i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(values[i]));
             Application.Current.Resources["Sidebar"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#242321" : "#E8E2D9"));

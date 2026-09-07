@@ -7,6 +7,9 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AssemblyName>YConnect</AssemblyName>
+    <AssemblyTitle>Y CONNECT</AssemblyTitle>
+    <Product>Y CONNECT</Product>
+    <Description>YAKCOOL 原生桌面连接中心</Description>
     <RootNamespace>YConnect</RootNamespace>
     <Version>0.2.0</Version>
     <PlatformTarget>x64</PlatformTarget>
@@ -16,6 +19,7 @@
     <ApplicationIcon>..\Assets\yconnect.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\Assets\yconnect-tray.ico" LogicalName="YConnect.Tray.ico" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Security" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
@@ -33,7 +37,7 @@
   <Target Name="CopyLauncher" AfterTargets="Build">
     <Copy SourceFiles="..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe;..\Launcher\bin\$(Configuration)\net48\YConnect.Launcher.exe.config" DestinationFolder="$(OutDir)" />
   </Target>
-  <Target Name="GenerateNativeIcon" BeforeTargets="CoreCompile" Condition="!Exists('..\Assets\yconnect.ico')">
+  <Target Name="GenerateNativeIcon" BeforeTargets="PrepareForBuild" Condition="!Exists('..\Assets\yconnect.ico') Or !Exists('..\Assets\yconnect-tray.ico')">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\generate-icon.ps1&quot;" />
   </Target>
 </Project>

@@ -98,6 +98,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--show-widget") {
             DispatchQueue.main.async { [weak self] in self?.showWidget() }
         }
+        if CommandLine.arguments.contains("--show-manager") {
+            DispatchQueue.main.async { [weak self] in self?.showManager(section: .clients) }
+        }
 
         // Smoke runs validate window behavior with an unauthenticated fixture.
         // Avoid an interactive Keychain unlock from blocking their timers.
@@ -117,7 +120,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.target = self
         button.action = #selector(statusClicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        button.toolTip = "YConnect · 左键打开小组件 / 右键菜单"
+        button.toolTip = "Y CONNECT · 左键打开小组件 / 右键菜单"
         refreshStatusItem()
     }
 
@@ -181,8 +184,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         let show = menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "")
         show.target = self
-        let manager = menu.addItem(withTitle: "打开 YConnect", action: #selector(showManagerAction), keyEquivalent: ",")
+        let manager = menu.addItem(withTitle: "打开 Y CONNECT", action: #selector(showManagerAction), keyEquivalent: ",")
         manager.target = self
+        if store.isAccountMode {
+            let recharge = menu.addItem(withTitle: "账户充值…", action: #selector(showRechargeAction), keyEquivalent: "")
+            recharge.target = self
+        }
         if store.isAuthenticated {
             menu.addItem(.separator())
             let copyInfo = menu.addItem(withTitle: "复制接入信息", action: #selector(copyAuthenticationInfoAction), keyEquivalent: "")
@@ -217,7 +224,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         edge.target = self
         menu.addItem(.separator())
-        let quit = menu.addItem(withTitle: "退出 YConnect", action: #selector(quit), keyEquivalent: "q")
+        let quit = menu.addItem(withTitle: "退出 Y CONNECT", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
@@ -226,6 +233,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .overview) }
+    @objc private func showRechargeAction() { showManager(section: .recharge) }
     @objc private func showClientsManagerAction() { showManager(section: .clients) }
     @objc private func copyAuthenticationInfoAction() { _ = store.copyAuthenticationInfo() }
     @objc private func copyAPIKeyAction() { _ = store.copyCurrentAPIKey() }
@@ -239,12 +247,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func configureMainMenu() {
-        let mainMenu = NSMenu(title: "YConnect")
+        let mainMenu = NSMenu(title: "Y CONNECT")
         let applicationItem = NSMenuItem()
-        let applicationMenu = NSMenu(title: "YConnect")
-        applicationMenu.addItem(withTitle: "关于 YConnect", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let applicationMenu = NSMenu(title: "Y CONNECT")
+        applicationMenu.addItem(withTitle: "关于 Y CONNECT", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         applicationMenu.addItem(.separator())
-        let quitItem = applicationMenu.addItem(withTitle: "退出 YConnect", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = applicationMenu.addItem(withTitle: "退出 Y CONNECT", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = NSApp
         applicationItem.submenu = applicationMenu
         mainMenu.addItem(applicationItem)
@@ -359,7 +367,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func showManager(section: ManagerSection) {
-        managerNavigation.selection = section
+        managerNavigation.selection = section == .recharge && !store.isAccountMode ? .overview : section
         presentManagerWindow()
     }
 
@@ -384,7 +392,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "YConnect"
+        window.title = "Y CONNECT"
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 940, height: 640)
         window.center()
@@ -593,16 +601,11 @@ enum TrayIconRenderer {
 
     @MainActor
     static func makeImage() -> NSImage {
-        let image = NSImage(size: canvasSize, flipped: false) { rect in
-            NSColor.labelColor.setStroke()
-            let path = NSBezierPath()
-            path.lineWidth = 1.7
-            path.lineCapStyle = .round
-            path.appendArc(withCenter: NSPoint(x: 6.2, y: 9), radius: 3.5, startAngle: 55, endAngle: 305)
-            path.appendArc(withCenter: NSPoint(x: 11.8, y: 9), radius: 3.5, startAngle: 235, endAngle: 125)
-            path.stroke()
-            let dot = NSBezierPath(ovalIn: NSRect(x: rect.midX - 1.25, y: rect.midY - 1.25, width: 2.5, height: 2.5))
-            dot.fill()
+        let image = NSImage(size: canvasSize, flipped: true) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setFillColor(NSColor.black.cgColor)
+            context.addPath(BrandMark().path(in: rect.insetBy(dx: 0.5, dy: 1)).cgPath)
+            context.fillPath()
             return true
         }
         image.isTemplate = true

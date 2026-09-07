@@ -217,7 +217,7 @@ final class CodexConfiguratorTests: XCTestCase {
         model_provider = "yakcool"
 
         [model_providers.yakcool]
-        name = "YakCool"
+        name = "YAKCOOL"
         base_url = "https://aibalance.yaklang.com/v1"
         wire_api = "responses"
 
@@ -243,7 +243,7 @@ final class CodexConfiguratorTests: XCTestCase {
         model_provider = "yakcool"
 
         [model_providers.yakcool]
-        name = "YakCool"
+        name = "YAKCOOL"
         base_url = "https://aibalance.yaklang.com/v1"
         wire_api = "responses"
 

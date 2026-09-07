@@ -17,7 +17,7 @@ namespace YConnect.Views
         public BalancePeekWindow(AppController controller)
         {
             this.controller = controller;
-            Title = "YConnect · 余额速览"; Width = 260; SizeToContent = SizeToContent.Height; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+            Title = "Y CONNECT · 余额速览"; Width = 260; SizeToContent = SizeToContent.Height; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
             AllowsTransparency = true; Background = Brushes.Transparent; Topmost = true; ShowActivated = false; ShowInTaskbar = false;
             shell = Ui.Card(new Border(), 16); shell.CornerRadius = new CornerRadius(17); shell.Margin = new Thickness(10);
             shell.Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Opacity = .16, Color = Colors.Black };
@@ -29,7 +29,7 @@ namespace YConnect.Views
         public void Render()
         {
             var store = controller.Store; var balance = BalancePresentation.From(store, store.Preferences.PeekPercentageOnly);
-            var title = Ui.Between(Ui.Row(Ui.Logo(21), new Border { Width = 8 }, Ui.Text("YConnect", 12, "Ink", true)), Ui.Text(store.Environment.Demo ? "演示" : balance.Stale ? "待同步" : "●", 10, balance.Stale ? "Muted" : "Green"));
+            var title = Ui.Between(Ui.Row(Ui.Logo(21), new Border { Width = 8 }, Ui.Text("Y CONNECT", 12, "Ink", true)), Ui.Text(store.Environment.Demo ? "演示" : balance.Stale ? "待同步" : "●", 10, balance.Stale ? "Muted" : "Green"));
             var open = Ui.Button("", "peek-open-widget", controller.ShowWidget, "Quiet"); open.Padding = new Thickness(0); open.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             open.Content = Ui.Between(Ui.Stack(Ui.Text(balance.Label, 10, "Muted"), Ui.Gap(3), Ui.Id(Ui.Text(balance.Value, store.Authenticated ? 27 : 20, "Ink", true), "peek-balance-value")), Ui.Glyph("\uE76C", 13));
             open.ToolTip = "打开连接面板";

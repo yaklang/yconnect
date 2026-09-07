@@ -54,10 +54,14 @@ jobs:
           done
           "$BIN" --render-edge-dock artifacts/edge-dock.png
           "$BIN" --render-tray-icon artifacts/tray-icon.png
-          test "$(sips -g pixelWidth artifacts/widget.png | awk '/pixelWidth/ {print $2}')" = "390"
+          test "$(sips -g pixelWidth artifacts/widget.png | awk '/pixelWidth/ {print $2}')" = "400"
           widget_height="$(sips -g pixelHeight artifacts/widget.png | awk '/pixelHeight/ {print $2}')"
           test "$widget_height" -ge 300
-          test "$widget_height" -le 600
+          test "$widget_height" -le 760
+          "$BIN" --render-widget artifacts/widget-dark.png --dark
+          "$BIN" --render-widget artifacts/widget-compact.png --maximum-height 600
+          "$BIN" --render-widget artifacts/widget-api-key.png --api-key-mode
+          test "$(sips -g pixelHeight artifacts/widget-compact.png | awk '/pixelHeight/ {print $2}')" = "600"
           test "$(sips -g pixelWidth artifacts/edge-dock.png | awk '/pixelWidth/ {print $2}')" = "158"
           test "$(sips -g pixelHeight artifacts/edge-dock.png | awk '/pixelHeight/ {print $2}')" = "112"
           test "$(sips -g pixelWidth artifacts/tray-icon.png | awk '/pixelWidth/ {print $2}')" = "220"
@@ -88,7 +92,7 @@ jobs:
             x86_64) arch=amd64 ;;
             *) echo "Unsupported runner architecture" >&2; exit 1 ;;
           esac
-          app="dist/darwin-dev-$arch/YConnectDev.app"
+          app="dist/darwin-dev-$arch/Y CONNECT Dev.app"
           dmg="dist/YConnectDev-$version-darwin-$arch.dmg"
           codesign --verify --deep --strict "$app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
@@ -97,7 +101,7 @@ jobs:
           mount_dir="$(mktemp -d)"
           hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
           trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
-          mounted_app="$mount_dir/YConnectDev.app"
+          mounted_app="$mount_dir/Y CONNECT Dev.app"
           test -x "$mounted_app/Contents/MacOS/YConnect"
           codesign --verify --deep --strict "$mounted_app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mounted_app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
@@ -115,7 +119,7 @@ jobs:
           mount_dir="$(mktemp -d)"
           hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
           trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
-          app="$mount_dir/YConnect.app"
+          app="$mount_dir/Y CONNECT.app"
           codesign --verify --deep --strict "$app"
           lipo "$app/Contents/MacOS/YConnect" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect"

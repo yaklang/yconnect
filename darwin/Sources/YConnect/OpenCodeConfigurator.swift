@@ -83,7 +83,7 @@ struct OpenCodeTransactionHooks {
     static let none = OpenCodeTransactionHooks()
 }
 
-/// Safely installs the YakCool provider into OpenCode's global configuration.
+/// Safely installs the YAKCOOL provider into OpenCode's global configuration.
 ///
 /// The API key is deliberately kept out of `opencode.json`. It is written to a
 /// mode-0600 file and referenced through OpenCode's `{file:...}` substitution.
@@ -172,7 +172,7 @@ final class OpenCodeConfigurator {
                 modelID: selectedModelID,
                 createdConfig: false,
                 changed: false,
-                message: "OpenCode 已在使用所选 YakCool 模型"
+                message: "OpenCode 已在使用所选 YAKCOOL 模型"
             )
         }
 
@@ -252,7 +252,7 @@ final class OpenCodeConfigurator {
             modelID: selectedModelID,
             createdConfig: createdConfig,
             changed: true,
-            message: "已将 OpenCode 切换到 YakCool / \(selectedModelID)"
+            message: "已将 OpenCode 切换到 YAKCOOL / \(selectedModelID)"
         )
     }
 
@@ -438,7 +438,7 @@ final class OpenCodeConfigurator {
         }
 
         providers[Self.providerID] = [
-            "name": "YakCool",
+            "name": "YAKCOOL",
             "npm": Self.providerPackage,
             "options": [
                 "apiKey": Self.fileReference(to: secretURL),
@@ -471,7 +471,7 @@ final class OpenCodeConfigurator {
     private func validatedModelID(_ value: String) throws -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed == value else {
-            throw OpenCodeConfigurationError.invalidModel("请选择有效的 YakCool 模型")
+            throw OpenCodeConfigurationError.invalidModel("请选择有效的 YAKCOOL 模型")
         }
         guard value.count <= 256,
               !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {

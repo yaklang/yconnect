@@ -53,10 +53,10 @@ namespace YConnect.Core
                 case "codex":
                     // A unique provider ID prevents a stored helper/auth block from winning the merge.
                     var provider = "yconnect_" + Path.GetFileName(root);
-                    session.Arguments = new[] { "-m", model, "-c", "model_provider=" + provider, "-c", "model_providers." + provider + ".name=YakCool", "-c", "model_providers." + provider + ".base_url=" + YakCoolApi.Gateway + "/v1", "-c", "model_providers." + provider + ".wire_api=responses", "-c", "model_providers." + provider + ".env_key=YCONNECT_API_KEY" };
+                    session.Arguments = new[] { "-m", model, "-c", "model_provider=" + provider, "-c", "model_providers." + provider + ".name=YAKCOOL", "-c", "model_providers." + provider + ".base_url=" + YakCoolApi.Gateway + "/v1", "-c", "model_providers." + provider + ".wire_api=responses", "-c", "model_providers." + provider + ".env_key=YCONNECT_API_KEY" };
                     break;
                 case "opencode":
-                    session.Variables["OPENCODE_CONFIG_CONTENT"] = new JObject { ["model"] = "yakcool/" + model, ["provider"] = new JObject { ["yakcool"] = new JObject { ["name"] = "YakCool", ["npm"] = "@ai-sdk/openai-compatible", ["options"] = new JObject { ["baseURL"] = YakCoolApi.Gateway + "/v1", ["apiKey"] = "{env:YCONNECT_API_KEY}" }, ["models"] = new JObject(available.Select(m => new JProperty(m.Id, new JObject { ["name"] = m.Name }))) } } }.ToString(Newtonsoft.Json.Formatting.None);
+                    session.Variables["OPENCODE_CONFIG_CONTENT"] = new JObject { ["model"] = "yakcool/" + model, ["provider"] = new JObject { ["yakcool"] = new JObject { ["name"] = "YAKCOOL", ["npm"] = "@ai-sdk/openai-compatible", ["options"] = new JObject { ["baseURL"] = YakCoolApi.Gateway + "/v1", ["apiKey"] = "{env:YCONNECT_API_KEY}" }, ["models"] = new JObject(available.Select(m => new JProperty(m.Id, new JObject { ["name"] = m.Name }))) } } }.ToString(Newtonsoft.Json.Formatting.None);
                     session.Arguments = new[] { "--model", "yakcool/" + model }; break;
                 case "claude-code":
                     var claudeEnv = new JObject { ["ANTHROPIC_BASE_URL"] = YakCoolApi.Gateway, ["ANTHROPIC_API_KEY"] = "", ["ANTHROPIC_AUTH_TOKEN"] = "", ["ANTHROPIC_MODEL"] = model, ["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model, ["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model, ["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model, ["CLAUDE_CODE_USE_BEDROCK"] = "0", ["CLAUDE_CODE_USE_VERTEX"] = "0", ["CLAUDE_CODE_USE_FOUNDRY"] = "0" };
@@ -70,7 +70,7 @@ namespace YConnect.Core
                     session.Arguments = new[] { "--provider", "yakcool", "--model", model }; break;
                 case "grok-build":
                     session.Variables["GROK_HOME"] = root;
-                    plan.Files.Add(Path.Combine(root, "config.toml"), "[models]\ndefault = \"yakcool\"\n[model.yakcool]\nname = \"YakCool\"\nmodel = " + JToken.FromObject(model).ToString(Newtonsoft.Json.Formatting.None) + "\nbase_url = \"" + YakCoolApi.Gateway + "/v1\"\napi_backend = \"chat_completions\"\nenv_key = \"YCONNECT_API_KEY\"\n");
+                    plan.Files.Add(Path.Combine(root, "config.toml"), "[models]\ndefault = \"yakcool\"\n[model.yakcool]\nname = \"YAKCOOL\"\nmodel = " + JToken.FromObject(model).ToString(Newtonsoft.Json.Formatting.None) + "\nbase_url = \"" + YakCoolApi.Gateway + "/v1\"\napi_backend = \"chat_completions\"\nenv_key = \"YCONNECT_API_KEY\"\n");
                     session.Arguments = new[] { "--model", "yakcool" }; break;
                 case "hermes":
                     session.Variables["HERMES_HOME"] = root; session.Variables["OPENAI_API_KEY"] = key; session.Variables["OPENAI_BASE_URL"] = YakCoolApi.Gateway + "/v1";
@@ -87,7 +87,7 @@ namespace YConnect.Core
         public static async Task<string> Start(ClientLaunchPlan plan, string terminal, string runner = null, CancellationToken cancellation = default)
         {
             runner = runner ?? Runner;
-            if (!Path.IsPathRooted(runner) || !File.Exists(runner)) throw new InvalidOperationException("启动器组件缺失，请重新安装完整 YConnect 包");
+            if (!Path.IsPathRooted(runner) || !File.Exists(runner)) throw new InvalidOperationException("启动器组件缺失，请重新安装完整 Y CONNECT 包");
             runner = SecureFiles.PhysicalPath(runner);
             var sessions = Path.GetDirectoryName(plan.Directory);
             if (Directory.Exists(sessions))

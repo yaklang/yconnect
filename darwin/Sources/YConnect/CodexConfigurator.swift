@@ -188,7 +188,7 @@ final class CodexClientConfigurator: ClientConfiguring {
                 || document.hasAssignment(table: authTable, key: "token")
 
             let providerIsCorrect = selectedProvider == Self.providerID
-                && document.string(table: providerTable, key: "name") == "YakCool"
+                && document.string(table: providerTable, key: "name") == "YAKCOOL"
                 && document.string(table: providerTable, key: "base_url") == Self.gatewayV1
                 && document.string(table: providerTable, key: "wire_api") == "responses"
             let configured = hasManagedMarker
@@ -201,16 +201,16 @@ final class CodexClientConfigurator: ClientConfiguring {
 
             var issues: [String] = []
             if hasManagedMarker && !providerIsCorrect {
-                issues.append("Codex 的 YakCool provider 与 Responses 配置不一致")
+                issues.append("Codex 的 YAKCOOL provider 与 Responses 配置不一致")
             }
             if hasManagedMarker && hasInlineCredential {
-                issues.append("Codex 的 YakCool provider 含有不安全或冲突的认证字段")
+                issues.append("Codex 的 YAKCOOL provider 含有不安全或冲突的认证字段")
             }
             if hasManagedMarker && hasManagedShapeConflict {
-                issues.append("Codex 的 YakCool provider 含有额外或冲突的子表、数组表或 dotted 配置")
+                issues.append("Codex 的 YAKCOOL provider 含有额外或冲突的子表、数组表或 dotted 配置")
             }
             if hasManagedMarker && !safeReference {
-                issues.append("Codex 的 YakCool provider 未使用 YConnect 管理的命令认证")
+                issues.append("Codex 的 YAKCOOL provider 未使用 Y CONNECT 管理的命令认证")
             }
             if safeReference && !credentialSecure {
                 issues.append("Codex 密钥文件缺失或权限不是 0600")
@@ -275,7 +275,7 @@ final class CodexClientConfigurator: ClientConfiguring {
         try editor.upsertTopLevel(key: "model_provider", value: .string(Self.providerID))
         try editor.removeManagedSubtree(named: "model_providers.\(Self.providerID)")
         try editor.replaceManagedTable(named: "model_providers.\(Self.providerID)", entries: [
-            TOMLConfigurationEntry("name", .string("YakCool")),
+            TOMLConfigurationEntry("name", .string("YAKCOOL")),
             TOMLConfigurationEntry("base_url", .string(Self.gatewayV1)),
             TOMLConfigurationEntry("wire_api", .string("responses")),
         ])
@@ -317,7 +317,7 @@ final class CodexClientConfigurator: ClientConfiguring {
         ]
         guard document.string(table: nil, key: "model") == expectedModelID,
               document.string(table: nil, key: "model_provider") == Self.providerID,
-              document.string(table: providerTable, key: "name") == "YakCool",
+              document.string(table: providerTable, key: "name") == "YAKCOOL",
               document.string(table: providerTable, key: "base_url") == Self.gatewayV1,
               document.string(table: providerTable, key: "wire_api") == "responses",
               document.string(table: authTable, key: "command") == "/bin/cat",
@@ -358,8 +358,8 @@ final class CodexClientConfigurator: ClientConfiguring {
                 : "已恢复最近一次 Codex 配置备份"
         } else {
             message = action == .unchanged
-                ? "Codex 已在使用所选 YakCool 模型"
-                : "已将 Codex 切换到 YakCool / \(modelID ?? "")"
+                ? "Codex 已在使用所选 YAKCOOL 模型"
+                : "已将 Codex 切换到 YAKCOOL / \(modelID ?? "")"
         }
         return ClientConfigurationResult(
             action: action,

@@ -56,7 +56,7 @@ struct AppEnvironment: Equatable {
                 .appendingPathComponent("opencode.json", isDirectory: false)
         }
         return AppEnvironment(
-            displayName: isDevelopment ? "YConnect Dev" : "YConnect",
+            displayName: isDevelopment ? "Y CONNECT Dev" : "Y CONNECT",
             keychainService: isDevelopment ? "io.yaklang.yconnect.dev" : "io.yaklang.yconnect",
             applicationSupportDirectory: support,
             openCodeConfigurationURL: openCodeURL,
@@ -67,7 +67,7 @@ struct AppEnvironment: Equatable {
 
     static func preview(at directory: URL) -> AppEnvironment {
         AppEnvironment(
-            displayName: "YConnect Preview",
+            displayName: "Y CONNECT Preview",
             keychainService: "io.yaklang.yconnect.preview",
             applicationSupportDirectory: directory,
             openCodeConfigurationURL: directory.appendingPathComponent("opencode.json"),
@@ -156,6 +156,11 @@ enum YConnectPreferences {
         set { UserDefaults.standard.set(newValue, forKey: prefix + "selected-model-id") }
     }
 
+    static var launchDirectory: String {
+        get { UserDefaults.standard.string(forKey: prefix + "launch-directory") ?? FileManager.default.homeDirectoryForCurrentUser.path }
+        set { UserDefaults.standard.set(newValue, forKey: prefix + "launch-directory") }
+    }
+
     static var selectedClientID: ClientID {
         get {
             guard let value = UserDefaults.standard.string(forKey: prefix + "selected-client-id"), !value.isEmpty else {
@@ -189,5 +194,17 @@ enum YConnectPreferences {
         let key = prefix + "selected-model-id." + clientID.rawValue
         if let modelID { UserDefaults.standard.set(modelID, forKey: key) }
         else { UserDefaults.standard.removeObject(forKey: key) }
+    }
+
+    static func contextWindowInput(for clientID: ClientID, modelID: String) -> String {
+        let values = UserDefaults.standard.dictionary(forKey: prefix + "context-windows." + clientID.rawValue)
+        return values?[modelID] as? String ?? ""
+    }
+
+    static func setContextWindowInput(_ value: String, for clientID: ClientID, modelID: String) {
+        let key = prefix + "context-windows." + clientID.rawValue
+        var values = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        values[modelID] = value
+        UserDefaults.standard.set(values, forKey: key)
     }
 }

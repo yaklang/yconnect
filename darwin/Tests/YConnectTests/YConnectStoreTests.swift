@@ -106,8 +106,8 @@ final class YConnectStoreTests: XCTestCase {
         let value = YConnectStore.authenticationInfo(apiKey: key)
 
         XCTAssertEqual(value.components(separatedBy: key).count - 1, 1)
-        XCTAssertTrue(value.contains("YConnect · YakCool 接入信息"))
-        XCTAssertTrue(value.contains("由 YConnect 生成并复制"))
+        XCTAssertTrue(value.contains("Y CONNECT · YAKCOOL 接入信息"))
+        XCTAssertTrue(value.contains("由 Y CONNECT 生成并复制"))
         XCTAssertTrue(value.contains("选择下面任一兼容协议接入"))
         XCTAssertTrue(value.contains("请只分享给可信的人"))
         for endpoint in YConnectStore.accessEndpoints {
@@ -194,6 +194,9 @@ final class YConnectStoreTests: XCTestCase {
 
         XCTAssertEqual(store.phase, .account)
         XCTAssertEqual(store.dashboard?.user.displayName, "Fixture Account")
+        XCTAssertEqual(AccountSpendingSnapshot(usage: store.accountUsage).todayRMB, Decimal(string: "1.23"))
+        XCTAssertEqual(AccountSpendingSnapshot(usage: store.accountUsage).todayRequests, 37)
+        XCTAssertNotNil(store.spendingUpdatedAt)
         XCTAssertEqual(store.account?.publicUUID, "fixture-public-user")
         XCTAssertEqual(store.accountKeys.map(\.id), [101])
         XCTAssertEqual(store.accountModels.map(\.modelID), ["catalog-model"])
@@ -241,6 +244,26 @@ final class YConnectStoreTests: XCTestCase {
             $0.cookie == "yakcool_user_session=fake-public-session-for-store-tests"
                 && $0.authorization == nil
         })
+        await store.signIn(apiKey: "fake-business-key-for-store-tests")
+        XCTAssertEqual(store.phase, .apiKey)
+        XCTAssertNil(store.accountUsage)
+        XCTAssertNil(store.spendingUpdatedAt)
+        XCTAssertNil(store.dashboard)
+    }
+
+    @MainActor
+    func testUnavailableDailyUsageDoesNotBlockAccountLoginOrShowZero() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let store = makeStore(context: context, transport: StoreFlowTransport(usageUnavailable: true), vault: MemoryCredentialVault())
+        try await store.completeAccountLogin(cookies: [TestFixture.cookie()])
+        XCTAssertEqual(store.phase, .account)
+        XCTAssertNotNil(store.dashboard)
+        XCTAssertNil(store.accountUsage)
+        XCTAssertNil(AccountSpendingSnapshot(usage: store.accountUsage).todayRMB)
+        await store.signOut()
+        XCTAssertNil(store.dashboard)
+        XCTAssertNil(store.accountUsage)
     }
 
     @MainActor
@@ -294,7 +317,7 @@ final class YConnectStoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
         XCTAssertFalse(store.isBusy)
         XCTAssertEqual(store.selectedModelID, "chat-primary")
-        XCTAssertEqual(store.operationMessage, "已将 OpenCode 切换到 YakCool / chat-primary")
+        XCTAssertEqual(store.operationMessage, "已将 OpenCode 切换到 YAKCOOL / chat-primary")
 
         let configData = try Data(contentsOf: context.configurationURL)
         let root = try XCTUnwrap(
@@ -347,7 +370,7 @@ final class YConnectStoreTests: XCTestCase {
         let supportURL = root
             .appendingPathComponent("home/Library/Application Support/YConnect", isDirectory: true)
         let environment = AppEnvironment(
-            displayName: "YConnect Store Tests",
+            displayName: "Y CONNECT Store Tests",
             keychainService: "io.yaklang.yconnect.store-tests",
             applicationSupportDirectory: supportURL,
             openCodeConfigurationURL: configurationURL,
@@ -390,6 +413,7 @@ private final class StoreFlowTransport: HTTPTransport {
     private let lock = NSLock()
     private let rejectBusinessKey: Bool
     private let emptyBusinessModels: Bool
+    private let usageUnavailable: Bool
     private var requests: [CapturedRequest] = []
     private var keyIDs: [Int64]
     private var mutableCreatedLabels: [String] = []
@@ -399,10 +423,12 @@ private final class StoreFlowTransport: HTTPTransport {
     init(
         rejectBusinessKey: Bool = false,
         emptyBusinessModels: Bool = false,
-        initialKeyIDs: [Int64] = [101]
+        initialKeyIDs: [Int64] = [101],
+        usageUnavailable: Bool = false
     ) {
         self.rejectBusinessKey = rejectBusinessKey
         self.emptyBusinessModels = emptyBusinessModels
+        self.usageUnavailable = usageUnavailable
         keyIDs = initialKeyIDs
     }
 
@@ -447,6 +473,16 @@ private final class StoreFlowTransport: HTTPTransport {
             }
             if path == "/api/user/dashboard" {
                 return response(request, object: dashboard)
+            }
+            if path == "/api/user/usage", !usageUnavailable {
+                let now = Date()
+                return response(request, object: [
+                    "available": true, "status": "synced",
+                    "from": AccountSpendingSnapshot.dayString(now.addingTimeInterval(-6 * 86_400)),
+                    "to": AccountSpendingSnapshot.dayString(now),
+                    "rows": [["date": AccountSpendingSnapshot.dayString(now), "request_count": 37,
+                              "estimated_count": 0, "amount_rmb": "1.2300000"]],
+                ])
             }
             if path == "/api/user/account" {
                 return response(request, object: account)

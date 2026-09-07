@@ -66,7 +66,7 @@ namespace YConnect.Core
         private ConfigurationPlan preview;
         public bool Authenticated => Mode == "account" || Mode == "apiKey";
         public string CurrentKey => Mode == "apiKey" ? standaloneKey : Keys.FirstOrDefault(k => (long?)k["id"] == Preferences.SelectedKey && k.Flag("active"))?.Text("api_key");
-        public string DisplayName => Mode == "account" ? Dashboard?["user"].Text("display_name", "YakCool 账户") : Mode == "apiKey" ? KeyInfo?["key"].Text("label", "API Key") : "连接你的 YakCool";
+        public string DisplayName => Mode == "account" ? Dashboard?["user"].Text("display_name", "YAKCOOL 账户") : Mode == "apiKey" ? KeyInfo?["key"].Text("label", "API Key") : "连接你的 YAKCOOL";
         public double? Remaining => Dashboard?["ai_service_credit"]?["token_remaining"] != null && Dashboard["ai_service_credit"]["token_remaining"].Type != JTokenType.Null ? Dashboard["ai_service_credit"].Number("token_remaining") / Math.Max(1, Dashboard["ai_service_credit"].Number("weighted_tokens_per_rmb", 10000000)) : (double?)null;
         public string SelectedModel => Preferences.SelectedModels.Text(Preferences.SelectedClient);
         public YConnectStore(EnvironmentPaths env, IYakCoolApi api)
@@ -89,7 +89,7 @@ namespace YConnect.Core
         public void ClearMessage(string expected) { if (Message == expected) { Message = null; Notify(); } }
         public string SuggestedKeyName()
         {
-            for (var i = 1; ; i++) { var value = "YConnect-" + i; if (!Keys.Any(k => k.Text("label").Equals(value, StringComparison.OrdinalIgnoreCase))) return value; }
+            for (var i = 1; ; i++) { var value = "Y CONNECT-" + i; if (!Keys.Any(k => k.Text("label").Equals(value, StringComparison.OrdinalIgnoreCase))) return value; }
         }
         public void RememberModel(string id)
         {
@@ -110,7 +110,7 @@ namespace YConnect.Core
             finally { Busy = false; Notify(); }
         }
         public string RequireKey() => !string.IsNullOrEmpty(CurrentKey) ? CurrentKey : throw new InvalidOperationException("请先连接 API Key 或选择有效的账户 Key");
-        private string RequireAccount() => Mode == "account" && cookie != null ? cookie : throw new InvalidOperationException("此功能需要 YakCool 账户登录，API Key 模式没有账户管理权限");
+        private string RequireAccount() => Mode == "account" && cookie != null ? cookie : throw new InvalidOperationException("此功能需要 YAKCOOL 账户登录，API Key 模式没有账户管理权限");
         public RechargeSession NewRechargeSession()
         {
             var session = RequireAccount();
@@ -164,14 +164,14 @@ namespace YConnect.Core
         {
             YakCoolApi.ValidateCookie(value);
             var me = await Api.Get("/api/auth/me", cookie: value);
-            if (me.Flag("staff_session")) throw new InvalidOperationException("只接受 YakCool 公开用户会话");
+            if (me.Flag("staff_session")) throw new InvalidOperationException("只接受 YAKCOOL 公开用户会话");
             if (!(me["user"] is JObject)) throw new ApiRequestException(401, "公开用户会话已过期，请重新扫码");
             var data = await FetchAccount(value);
             if (persist) SecureFiles.SaveSession(Environment, new JObject { ["mode"] = "account", ["cookie"] = value });
             var changedConnection = Mode != "account" || cookie != value;
             cookie = value; standaloneKey = null; Mode = "account"; CanRetrySession = false; KeyInfo = null; InstallAccount(data); preview = null;
             if (changedConnection) ClearChecks();
-            await LoadSelectedModels(); Message = "YakCool 账户已安全连接";
+            await LoadSelectedModels(); Message = "YAKCOOL 账户已安全连接";
         }
         private async Task<JObject[]> FetchAccount(string session)
         {
@@ -258,7 +258,7 @@ namespace YConnect.Core
         public async Task CheckConnection()
         {
             Error = Message = null;
-            Checks = new List<ServiceCheck> { new ServiceCheck { Title = "YakCool 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
+            Checks = new List<ServiceCheck> { new ServiceCheck { Title = "YAKCOOL 服务" }, new ServiceCheck { Title = "Key 权限" }, new ServiceCheck { Title = "模型与协议" } };
             Func<Task<string>>[] operations ={
                 async()=>{var r=await Api.Get("/api/health");if(!new[]{"ok","healthy"}.Contains(r.Text("status")))throw new InvalidOperationException("服务状态异常");return "服务可达";},
                 async()=>{var r=await Api.Get("/api/key/info",key:RequireKey()); ValidateKeyInfo(r); KeyInfo=r; if(r["quota"].Flag("exhausted")) { Checks[1].State="warning"; return "Key 已启用，额度已用尽，请充值"; } return "Key 已启用 · "+r["quota"].Text("display", "额度可用");},

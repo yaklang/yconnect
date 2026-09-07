@@ -57,12 +57,12 @@ final class LaunchAtLoginManager: ObservableObject {
 
     var statusDetail: String {
         switch status {
-        case .enabled: return "登录 macOS 后，YConnect 会自动进入菜单栏。"
-        case .disabled: return "YConnect 不会随登录自动运行。"
-        case .requiresApproval: return "请在“系统设置 → 通用 → 登录项”中允许 YConnect。"
+        case .enabled: return "登录 macOS 后，Y CONNECT 会自动进入菜单栏。"
+        case .disabled: return "Y CONNECT 不会随登录自动运行。"
+        case .requiresApproval: return "请在“系统设置 → 通用 → 登录项”中允许 Y CONNECT。"
         case .unavailable:
             return packagedApplication
-                ? "系统没有找到可注册的应用，请将 YConnect 放入“应用程序”后重试。"
+                ? "系统没有找到可注册的应用，请将 Y CONNECT 放入“应用程序”后重试。"
                 : "开发构建不会修改登录项；安装版可正常使用。"
         }
     }

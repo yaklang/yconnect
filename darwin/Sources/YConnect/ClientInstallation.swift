@@ -52,7 +52,7 @@ struct DefaultClientInstallationDetector: ClientInstallationDetecting {
             )
         case .grokBuild:
             // Grok Bot.app is a different product and must not be treated as Grok Build.
-            return hasExecutable(named: "grok") || hasExecutable(named: "grok-build")
+            return hasExecutable(named: "grok", extras: [".grok/bin/grok"]) || hasExecutable(named: "grok-build")
         case .openClaw:
             return hasExecutable(named: "openclaw")
         case .hermes:
@@ -67,6 +67,23 @@ struct DefaultClientInstallationDetector: ClientInstallationDetecting {
         extras: [String] = [],
         absoluteExtras: [String] = []
     ) -> Bool {
+        resolveExecutable(named: name, extras: extras, absoluteExtras: absoluteExtras) != nil
+    }
+
+    func executableURL(for clientID: ClientID) -> URL? {
+        switch clientID {
+        case .openCode: return resolveExecutable(named: "opencode", extras: [".opencode/bin/opencode"])
+        case .pi: return resolveExecutable(named: "pi")
+        case .claudeCode: return resolveExecutable(named: "claude")
+        case .codex: return resolveExecutable(named: "codex", absoluteExtras: ["/Applications/ChatGPT.app/Contents/Resources/codex"])
+        case .grokBuild: return resolveExecutable(named: "grok", extras: [".grok/bin/grok"]) ?? resolveExecutable(named: "grok-build")
+        case .hermes: return resolveExecutable(named: "hermes") ?? resolveExecutable(named: "hermes-agent")
+        case .openClaw: return resolveExecutable(named: "openclaw")
+        default: return nil
+        }
+    }
+
+    private func resolveExecutable(named name: String, extras: [String] = [], absoluteExtras: [String] = []) -> URL? {
         let conventionalDirectories = [
             "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
             homeDirectory.appendingPathComponent(".local/bin", isDirectory: true).path,
@@ -79,7 +96,7 @@ struct DefaultClientInstallationDetector: ClientInstallationDetecting {
         } + extras.map {
             homeDirectory.appendingPathComponent($0, isDirectory: false).path
         } + absoluteExtras
-        return candidates.contains(where: isExecutable)
+        return candidates.first(where: isExecutable).map { URL(fileURLWithPath: $0) }
     }
 
     private func hasApplication(named name: String) -> Bool {

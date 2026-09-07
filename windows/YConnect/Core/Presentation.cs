@@ -12,7 +12,7 @@ namespace YConnect.Core
         public bool Stale { get; private set; }
         public static BalancePresentation From(YConnectStore store, bool privacy = false)
         {
-            var result = new BalancePresentation { Label = "连接你的 YakCool", Value = "尚未连接" };
+            var result = new BalancePresentation { Label = "连接你的 YAKCOOL", Value = "尚未连接" };
             if (!store.Authenticated) return result;
             result.Stale = !store.LastRefresh.HasValue || DateTime.Now - store.LastRefresh.Value > TimeSpan.FromMinutes(5);
             if (store.Mode == "account")

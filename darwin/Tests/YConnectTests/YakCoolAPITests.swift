@@ -213,7 +213,7 @@ final class YakCoolAPITests: XCTestCase {
                 wireProtocol: .responses
             )
         }
-        await assertProbeError(.unsupported("YConnect 暂不支持通过 future_protocol 执行最小模型调用")) {
+        await assertProbeError(.unsupported("Y CONNECT 暂不支持通过 future_protocol 执行最小模型调用")) {
             try await api.modelProbe(
                 gateway: YakCoolAPI.productionGateway,
                 apiKey: "fake-probe-key",
@@ -307,7 +307,7 @@ final class YakCoolAPITests: XCTestCase {
         XCTAssertThrowsError(try YakCoolAPI.normalizedAPIKey(value), file: file, line: line) { error in
             XCTAssertEqual(
                 error as? YConnectError,
-                .invalidCredential("请输入有效的 YakCool API Key"),
+                .invalidCredential("请输入有效的 YAKCOOL API Key"),
                 file: file,
                 line: line
             )

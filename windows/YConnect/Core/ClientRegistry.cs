@@ -107,7 +107,7 @@ namespace YConnect.Core
             var available = descriptor.Compatible(models).ToArray();
             var selected = available.FirstOrDefault(m => m.Id == modelId) ?? throw new InvalidOperationException("模型不支持此客户端的原生协议");
             // Multi-protocol clients prefer the model's native upstream mode when known;
-            // every model still remains available through all YakCool gateway entrances.
+            // every model still remains available through all YAKCOOL gateway entrances.
             var protocol = selected.ReportedProtocols.FirstOrDefault(descriptor.Protocols.Contains) ?? descriptor.Protocols.First(selected.Protocols.Contains);
             var eligible = new[] { selected }.Concat(available.Where(m => m.Id != selected.Id && m.Protocols.Contains(protocol))).ToArray();
             foreach (var model in eligible) YakCoolApi.ValidateModel(model.Id);
@@ -121,7 +121,7 @@ namespace YConnect.Core
                 case "opencode":
                     {
                         var root = ReadObject(files[0]); var provider = Child(Child(root, "provider"), "yakcool");
-                        provider["name"] = "YakCool"; provider["npm"] = "@ai-sdk/openai-compatible";
+                        provider["name"] = "YAKCOOL"; provider["npm"] = "@ai-sdk/openai-compatible";
                         provider["options"] = new JObject { ["baseURL"] = YakCoolApi.Gateway + "/v1", ["apiKey"] = "{file:" + secret.Replace('\\', '/') + "}" };
                         provider["models"] = new JObject(eligible.Select(m => new JProperty(m.Id, new JObject { ["name"] = m.Name })));
                         root["model"] = "yakcool/" + modelId; root["$schema"] = root["$schema"] ?? "https://opencode.ai/config.json"; add(files[0], root); break;
@@ -142,7 +142,7 @@ namespace YConnect.Core
                     {
                         plan.Add(files[0], ConfigurationEditors.EditToml(SecureFiles.ReadText(files[0]), new JObject { ["model"] = modelId, ["model_provider"] = "yakcool" }, new Dictionary<string, JObject>
                         {
-                            ["model_providers.yakcool"] = new JObject { ["name"] = "YakCool", ["base_url"] = YakCoolApi.Gateway + "/v1", ["wire_api"] = "responses" },
+                            ["model_providers.yakcool"] = new JObject { ["name"] = "YAKCOOL", ["base_url"] = YakCoolApi.Gateway + "/v1", ["wire_api"] = "responses" },
                             ["model_providers.yakcool.auth"] = new JObject { ["command"] = helperPath, ["args"] = new JArray(), ["timeout_ms"] = 5000, ["refresh_interval_ms"] = 300000 },
                         })); break;
                     }
@@ -153,7 +153,7 @@ namespace YConnect.Core
                         plan.Add(files[0], ConfigurationEditors.EditToml(source, new JObject(), new Dictionary<string, JObject>
                         {
                             ["models"] = defaults,
-                            ["model.yakcool"] = new JObject { ["model"] = modelId, ["base_url"] = YakCoolApi.Gateway + "/v1", ["name"] = "YakCool · " + selected.Name, ["api_backend"] = protocol == "anthropic_messages" ? "messages" : protocol, ["auth_provider"] = "yconnect" },
+                            ["model.yakcool"] = new JObject { ["model"] = modelId, ["base_url"] = YakCoolApi.Gateway + "/v1", ["name"] = "YAKCOOL · " + selected.Name, ["api_backend"] = protocol == "anthropic_messages" ? "messages" : protocol, ["auth_provider"] = "yconnect" },
                             ["auth_provider.yconnect"] = new JObject { ["command"] = helperPath, ["args"] = new JArray(), ["token_ttl_secs"] = 300, ["timeout_secs"] = 5 },
                         })); break;
                     }
@@ -164,7 +164,7 @@ namespace YConnect.Core
                         root["inferenceCredentialKind"] = "helper-script"; root["inferenceCredentialHelper"] = helperPath; root["inferenceCredentialHelperTtlSec"] = 300; root["inferenceCredentialHelperTimeoutSec"] = 5; root["inferenceCredentialHelperSilentRefreshEnabled"] = true;
                         root["inferenceModels"] = new JArray(eligible.Select(m => new JObject { ["name"] = m.Id, ["labelOverride"] = m.Name }));
                         if (meta["entries"] != null && !(meta["entries"] is JArray)) throw new InvalidOperationException("Claude Desktop 档案索引格式无效");
-                        meta["entries"] = new JArray(meta.Array("entries").Where(e => e.Text("id") != ProfileId).Concat(new[] { new JObject { ["id"] = ProfileId, ["name"] = "YakCool · YConnect" } })); meta["appliedId"] = ProfileId;
+                        meta["entries"] = new JArray(meta.Array("entries").Where(e => e.Text("id") != ProfileId).Concat(new[] { new JObject { ["id"] = ProfileId, ["name"] = "YAKCOOL · Y CONNECT" } })); meta["appliedId"] = ProfileId;
                         add(files[0], root); add(files[1], meta); break;
                     }
                 case "openclaw":

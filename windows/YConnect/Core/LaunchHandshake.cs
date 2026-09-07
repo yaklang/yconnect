@@ -19,8 +19,8 @@ namespace YConnect.Core
         public static LaunchFailure From(Exception error, string stage)
         {
             // Deliberately do not serialize exception messages, command lines or environments.
-            var text = stage == "read-session" ? "启动会话文件不可读取，请从 YConnect 重新启动。" : stage == "decrypt-session" ? "启动会话无法解密，请确认终端与 YConnect 使用同一个 Windows 账户。" : stage == "check-session" ? "启动请求已过期或无效，请从 YConnect 重新启动。" : stage == "start-shell" ? "系统终端未能启动，请检查 Windows PowerShell / CMD 是否可用。" : "客户端未能启动，请重新检测客户端安装。";
-            if (error is DirectoryNotFoundException) text = stage == "read-session" ? "启动会话目录不可读取，请从 YConnect 重新启动；这不代表工作目录不存在。" : "工作目录已不存在，请重新选择文件夹。";
+            var text = stage == "read-session" ? "启动会话文件不可读取，请从 Y CONNECT 重新启动。" : stage == "decrypt-session" ? "启动会话无法解密，请确认终端与 Y CONNECT 使用同一个 Windows 账户。" : stage == "check-session" ? "启动请求已过期或无效，请从 Y CONNECT 重新启动。" : stage == "start-shell" ? "系统终端未能启动，请检查 Windows PowerShell / CMD 是否可用。" : "客户端未能启动，请重新检测客户端安装。";
+            if (error is DirectoryNotFoundException) text = stage == "read-session" ? "启动会话目录不可读取，请从 Y CONNECT 重新启动；这不代表工作目录不存在。" : "工作目录已不存在，请重新选择文件夹。";
             if (error is FileNotFoundException && stage == "start-client") text = "客户端程序已移动或卸载，请重新检测安装。";
             if (error is UnauthorizedAccessException) text = "Windows 拒绝访问启动文件，请检查文件权限或安全软件记录。";
             if (error is Win32Exception win32 && win32.NativeErrorCode == 193) text = "客户端入口不是有效的 Windows 可执行程序，请重新检测安装。";

@@ -53,4 +53,4 @@ jobs:
           test -s "release/YConnect-$version-windows-x64.zip"
           test -s "release/YConnect-$version-darwin-universal.dmg"
           (cd release && sha256sum *.exe *.zip *.dmg > SHA256SUMS.txt)
-          gh release create "$RELEASE_TAG" release/* --verify-tag --title "YConnect $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --latest
+          gh release create "$RELEASE_TAG" release/* --verify-tag --title "Y CONNECT $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --latest

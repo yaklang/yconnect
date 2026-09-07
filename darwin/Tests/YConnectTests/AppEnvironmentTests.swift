@@ -9,7 +9,7 @@ final class AppEnvironmentTests: XCTestCase {
 
         let environment = AppEnvironment.preview(at: root)
 
-        XCTAssertEqual(environment.displayName, "YConnect Preview")
+        XCTAssertEqual(environment.displayName, "Y CONNECT Preview")
         XCTAssertEqual(environment.keychainService, "io.yaklang.yconnect.preview")
         XCTAssertEqual(environment.applicationSupportDirectory, root)
         XCTAssertEqual(environment.openCodeConfigurationURL, root.appendingPathComponent("opencode.json"))

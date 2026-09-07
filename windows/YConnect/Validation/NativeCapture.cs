@@ -26,7 +26,7 @@ namespace YConnect.Validation
             window.Show(); window.UpdateLayout(); var handle = new WindowInteropHelper(window).Handle;
             if (!GetWindowRect(handle, out var bounds)) throw new InvalidOperationException("Native window bounds unavailable");
             var scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
-            var backdrop = new Window { Title = "YConnect render validation backdrop", Width = (bounds.Right - bounds.Left + 32) / scale, Height = (bounds.Bottom - bounds.Top + 32) / scale, WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, ShowActivated = false, Topmost = false, Background = new SolidColorBrush(darkBackdrop ? Color.FromRgb(28, 38, 48) : Color.FromRgb(217, 229, 236)) };
+            var backdrop = new Window { Title = "Y CONNECT render validation backdrop", Width = (bounds.Right - bounds.Left + 32) / scale, Height = (bounds.Bottom - bounds.Top + 32) / scale, WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, ShowActivated = false, Topmost = false, Background = new SolidColorBrush(darkBackdrop ? Color.FromRgb(28, 38, 48) : Color.FromRgb(217, 229, 236)) };
             var oldTopmost = window.Topmost;
             try
             {

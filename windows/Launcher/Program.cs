@@ -18,7 +18,7 @@ internal static class Program
             {
                 receipt = Environment.GetEnvironmentVariable("YCONNECT_LAUNCH_RECEIPT"); stage = "start-client";
                 var value = Environment.GetEnvironmentVariable("YCONNECT_LAUNCH_COMMAND");
-                var command = JsonConvert.DeserializeObject<LaunchSession>(value ?? throw new InvalidOperationException("请从 YConnect 打开专用终端"));
+                var command = JsonConvert.DeserializeObject<LaunchSession>(value ?? throw new InvalidOperationException("请从 Y CONNECT 打开专用终端"));
                 using (var child = Process.Start(command.ClientStartInfo()))
                 {
                     if (receipt != null)
@@ -60,14 +60,14 @@ internal static class Program
             if (isCmd)
             {
                 // Only fixed text and a quoted process environment variable enter cmd.
-                var script = "title YConnect - YakCool & echo YakCool session ready. Type yconnect to launch. & doskey yconnect=\"%YCONNECT_LAUNCHER%\" --run";
+                var script = "title Y CONNECT - YAKCOOL & echo YAKCOOL session ready. Type yconnect to launch. & doskey yconnect=\"%YCONNECT_LAUNCHER%\" --run";
                 if (session.AutoStart) script += " & \"%YCONNECT_LAUNCHER%\" --run";
                 else script += " & \"%YCONNECT_LAUNCHER%\" --ready";
                 info.Arguments = "/d /v:off " + (session.CloseOnExit ? "/c " : "/k ") + script;
             }
             else
             {
-                var script = "$Host.UI.RawUI.WindowTitle = " + LaunchSession.PowerShellLiteral("YConnect · " + session.Client) + "; function global:yconnect { & $env:YCONNECT_LAUNCHER --run }; Write-Host " + LaunchSession.PowerShellLiteral("YakCool 已就绪 · " + session.Client + " · " + session.Model) + " -ForegroundColor Cyan; Write-Host '输入 yconnect 启动；退出客户端后可再次运行。此窗口使用独立连接。';";
+                var script = "$Host.UI.RawUI.WindowTitle = " + LaunchSession.PowerShellLiteral("Y CONNECT · " + session.Client) + "; function global:yconnect { & $env:YCONNECT_LAUNCHER --run }; Write-Host " + LaunchSession.PowerShellLiteral("YAKCOOL 已就绪 · " + session.Client + " · " + session.Model) + " -ForegroundColor Cyan; Write-Host '输入 yconnect 启动；退出客户端后可再次运行。此窗口使用独立连接。';";
                 if (session.AutoStart) script += " yconnect";
                 else script += " & $env:YCONNECT_LAUNCHER --ready";
                 if (session.CloseOnExit) script += "; exit $LASTEXITCODE";
@@ -95,7 +95,7 @@ internal static class Program
             // Never echo credentials, process environment, or a request payload on failure.
             var failure = LaunchFailure.From(error, stage);
             try { LaunchHandshake.Failed(receipt, failure); } catch { }
-            Console.Error.WriteLine("YConnect：" + failure); return 1;
+            Console.Error.WriteLine("Y CONNECT：" + failure); return 1;
         }
     }
 }

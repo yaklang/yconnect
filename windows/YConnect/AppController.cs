@@ -53,7 +53,7 @@ namespace YConnect
         {
             Store = store; Ui.SetTheme(Store.Preferences.Theme);
             Widget = new WidgetWindow(this); Edge = new EdgeDock(this);
-            tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(), Text = "YConnect · 连接你的 YakCool", Visible = true };
+            tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(), Text = "Y CONNECT · 连接你的 YAKCOOL", Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) ToggleWidget(); }; tray.DoubleClick += (s, e) => ShowManager("overview");
             Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
             refresh.Tick += async (s, e) => { if (!Store.Busy && Store.Authenticated) await Store.Run(Store.Refresh); }; refresh.Start();
@@ -99,7 +99,7 @@ namespace YConnect
             WindowsDesktop.Glide(Widget, target.X, target.Y, Motion.Allowed, () => { Widget.IsDragging = false; Store.SavePreferences(); PositionAll(); });
         }
         public async void NewKey() { try { ShowManager("keys"); await Manager.CreateKey(); } catch (Exception e) { Store.SetError(e.Message); } }
-        public async Task SignOut() { if (Store.Authenticated && Confirm("登出 YConnect？", "清除本次登录。已应用的客户端配置会保留，可在客户端适配中单独恢复。", "登出")) await Store.Run(Store.SignOut); }
+        public async Task SignOut() { if (Store.Authenticated && Confirm("登出 Y CONNECT？", "清除本次登录。已应用的客户端配置会保留，可在客户端适配中单独恢复。", "登出")) await Store.Run(Store.SignOut); }
         public async Task LoginAccount()
         {
             if (Store.Environment.Demo) { await Store.Run(() => Store.LoginAccount("demo-public-session-only")); if (resumeRechargeAfterLogin) { resumeRechargeAfterLogin = false; OpenRecharge(); } return; }
@@ -135,7 +135,7 @@ namespace YConnect
         public void SetStartup(bool enabled)
         {
             if (Store.Environment.Development) throw new InvalidOperationException("请在正式版设置开机启动");
-            if (!enabled && !Confirm("关闭开机启动？", "关闭后需要手动打开 YConnect，屏幕边缘入口不会在登录 Windows 时出现。", "关闭启动")) { Store.Notify(); return; }
+            if (!enabled && !Confirm("关闭开机启动？", "关闭后需要手动打开 Y CONNECT，屏幕边缘入口不会在登录 Windows 时出现。", "关闭启动")) { Store.Notify(); return; }
             WriteStartup(enabled);
             if (StartupEnabled != enabled) throw new IOException("Windows 未保存启动项"); Store.Preferences.StartupChoice = enabled; Store.SavePreferences(); Store.SetMessage(enabled ? "已开启开机启动" : "已关闭开机启动");
         }
@@ -159,7 +159,7 @@ namespace YConnect
             var selected = Store.Models.FirstOrDefault(m => m.Id == model) ?? Store.FrequentModels.FirstOrDefault();
             var client = ClientRegistry.All.FirstOrDefault(c => c.Id == Store.Preferences.SelectedClient);
             var text = new StringBuilder();
-            text.AppendLine("YConnect × YakCool · AI 模型接入信息");
+            text.AppendLine("Y CONNECT × YAKCOOL · AI 模型接入信息");
             text.AppendLine("连接自然流动，让好模型进入每一个工作流。");
             text.AppendLine();
             if (selected != null) text.AppendLine("当前推荐: " + selected.Name + " (" + selected.Id + ")");
@@ -175,9 +175,9 @@ namespace YConnect
             text.AppendLine();
             text.AppendLine("API Key: " + key);
             text.AppendLine();
-            text.AppendLine("由 YakCool 提供统一模型网关、余额与客户端接入能力。");
-            text.AppendLine("YakCool: " + YakCoolApi.Origin);
-            text.Append("YConnect: https://github.com/yaklang/yconnect");
+            text.AppendLine("由 YAKCOOL 提供统一模型网关、余额与客户端接入能力。");
+            text.AppendLine("YAKCOOL: " + YakCoolApi.Origin);
+            text.Append("Y CONNECT: https://github.com/yaklang/yconnect");
             return text.ToString();
         }
         private static void CopySensitive(string value)
@@ -246,25 +246,21 @@ namespace YConnect
         }
         private void UpdateTray()
         {
-            var status = BalancePresentation.From(Store, Store.Preferences.PeekPercentageOnly).Value; tray.Text = "YConnect · " + status;
+            var status = BalancePresentation.From(Store, Store.Preferences.PeekPercentageOnly).Value; tray.Text = "Y CONNECT · " + status;
             var old = tray.ContextMenuStrip; var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("打开小组件", null, (s, e) => ShowWidget()); menu.Items.Add("打开管理中心", null, (s, e) => ShowManager("overview"));
             menu.Items.Add("充值账户余额", null, (s, e) => OpenRecharge());
             var copy = menu.Items.Add("复制当前 API Key", null, (s, e) => CopyKey()); copy.Enabled = !string.IsNullOrEmpty(Store.CurrentKey); menu.Items.Add(new Forms.ToolStripSeparator());
             var visible = new Forms.ToolStripMenuItem("显示屏幕边缘入口") { Checked = Store.Preferences.EdgeEnabled }; visible.Click += (s, e) => { Store.Preferences.EdgeEnabled = !Store.Preferences.EdgeEnabled; Store.SavePreferences(); PositionAll(); }; menu.Items.Add(visible);
             var pin = new Forms.ToolStripMenuItem("固定小组件") { Checked = Store.Preferences.Pinned }; pin.Click += (s, e) => { Store.Preferences.Pinned = !Store.Preferences.Pinned; Store.SavePreferences(); }; menu.Items.Add(pin);
-            menu.Items.Add("移至鼠标所在显示器", null, (s, e) => { ActiveScreen = Forms.Screen.FromPoint(Forms.Cursor.Position); PositionAll(); ShowWidget(); }); menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add("退出 YConnect", null, (s, e) => Quit()); tray.ContextMenuStrip = menu; old?.Dispose();
+            menu.Items.Add("移至鼠标所在显示器", null, (s, e) => { ActiveScreen = Forms.Screen.FromPoint(Forms.Cursor.Position); PositionAll(); ShowWidget(); }); menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add("退出 Y CONNECT", null, (s, e) => Quit()); tray.ContextMenuStrip = menu; old?.Dispose();
         }
-        [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr icon);
         private static Drawing.Icon CreateTrayIcon()
         {
-            using (var bitmap = new Drawing.Bitmap(64, 64))
-            using (var graphics = Drawing.Graphics.FromImage(bitmap))
-            using (var brush = new Drawing.SolidBrush(Drawing.Color.FromArgb(185, 105, 83)))
-            using (var pen = new Drawing.Pen(Drawing.Color.White, 5) { StartCap = Drawing.Drawing2D.LineCap.Round, EndCap = Drawing.Drawing2D.LineCap.Round, LineJoin = Drawing.Drawing2D.LineJoin.Round })
+            using (var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("YConnect.Tray.ico"))
+            using (var icon = new Drawing.Icon(stream, 32, 32))
             {
-                graphics.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias; graphics.FillEllipse(brush, 2, 2, 60, 60); graphics.DrawLines(pen, new[] { new Drawing.Point(19, 19), new Drawing.Point(32, 35), new Drawing.Point(45, 19) }); graphics.DrawLine(pen, 32, 35, 32, 48);
-                var handle = bitmap.GetHicon(); try { return (Drawing.Icon)Drawing.Icon.FromHandle(handle).Clone(); } finally { DestroyIcon(handle); }
+                return (Drawing.Icon)icon.Clone();
             }
         }
         public void Quit() { Quitting = true; Launches.Changed -= StoreChanged; Launches.Dispose(); Dispose(); Application.Current.Shutdown(); }

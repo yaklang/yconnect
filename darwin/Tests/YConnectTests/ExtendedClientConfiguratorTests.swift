@@ -164,7 +164,7 @@ final class ExtendedClientConfiguratorTests: XCTestCase {
             {"id": "other-profile", "name": "Other", "token": "\(metadataSecret)"},
             {
               "id": "\(ClaudeDesktopClientConfigurator.profileID)",
-              "name": "Old YakCool",
+              "name": "Old YAKCOOL",
               "keepEntryField": {"enabled": true}
             }
           ]

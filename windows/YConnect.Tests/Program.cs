@@ -154,7 +154,7 @@ internal static class Program
         Test("TOML unrelated multiline literals and comments survive", () =>
         {
             var source = "# original comment\ndescription = '''\n[model_providers.yakcool]\nnot = 'a table'\n'''\n[tools]\nkeep = true\n";
-            var output = ConfigurationEditors.EditToml(source, new JObject { ["model"] = "example" }, new Dictionary<string, JObject> { ["model_providers.yakcool"] = new JObject { ["name"] = "YakCool" } });
+            var output = ConfigurationEditors.EditToml(source, new JObject { ["model"] = "example" }, new Dictionary<string, JObject> { ["model_providers.yakcool"] = new JObject { ["name"] = "YAKCOOL" } });
             Assert(output.Contains(source), "unowned multiline text changed");
         });
         Test("Malformed JSON and TOML are rejected before writes", () =>
@@ -293,9 +293,9 @@ internal static class Program
         await TestAsync("Key suggestions fill naming gaps and models remain authorized", async () =>
         {
             var store = new YConnectStore(Env("suggestions"), new DemoApi()); await store.LoginAccount("demo-public-session-only");
-            Assert(store.SuggestedKeyName() == "YConnect-1", "first suggestion");
-            store.Keys.Add(new JObject { ["label"] = "YConnect-1" }); store.Keys.Add(new JObject { ["label"] = "yconnect-3" });
-            Assert(store.SuggestedKeyName() == "YConnect-2", "first unused name");
+            Assert(store.SuggestedKeyName() == "Y CONNECT-1", "first suggestion");
+            store.Keys.Add(new JObject { ["label"] = "Y CONNECT-1" }); store.Keys.Add(new JObject { ["label"] = "y connect-3" });
+            Assert(store.SuggestedKeyName() == "Y CONNECT-2", "first unused name");
             store.RememberModel("gpt-5.4"); Assert(store.FrequentModels.First().Id == "gpt-5.4" && store.Preferences.CurrentModel == "gpt-5.4", "recent selection");
             Throws(() => store.RememberModel("unavailable-model"));
             store.Preferences.CurrentModel = "unavailable-model"; await store.LoginKey(DemoApi.Key);

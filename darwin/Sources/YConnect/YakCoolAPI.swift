@@ -38,7 +38,7 @@ struct ModelProbeResult: Equatable {
     var protocolName: String { wireProtocol.title }
 }
 
-final class YakCoolAPI {
+final class YakCoolAPI: RechargeAPI {
     static let productionOrigin = URL(string: "https://yakcool.com")!
     static let productionGateway = URL(string: "https://aibalance.yaklang.com")!
     static let userAgent = "YConnect/0.2.0"
@@ -72,13 +72,25 @@ final class YakCoolAPI {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.utf8.count <= 512,
               !value.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) else {
-            throw YConnectError.invalidCredential("请输入有效的 YakCool API Key")
+            throw YConnectError.invalidCredential("请输入有效的 YAKCOOL API Key")
         }
         return value
     }
 
     func health() async throws -> HealthResponse {
         try await get("/api/health", credential: .none)
+    }
+
+    func createPayment(amountCents: Int64, channel: PaymentChannel, cookies: [StoredWebCookie]) async throws -> PaymentOrder {
+        guard (100...1_000_000).contains(amountCents) else { throw YConnectError.unsupported("充值金额应为 ¥1–¥10,000") }
+        struct Body: Encodable { let amount_cents: Int64; let channel: String }
+        return try await send("/api/payments/orders", method: "POST", credential: .webCookies(cookies),
+                              body: Body(amount_cents: amountCents, channel: channel.rawValue))
+    }
+
+    func paymentStatus(orderNo: String, cookies: [StoredWebCookie]) async throws -> PaymentOrderStatus {
+        let id = try RechargeSession.validateOrderNo(orderNo)
+        return try await get("/api/payments/orders/\(id)", credential: .webCookies(cookies))
     }
 
     func verifyWebCookies(_ cookies: [StoredWebCookie]) async throws -> PublicMeResponse {
@@ -90,6 +102,11 @@ final class YakCoolAPI {
 
     func dashboard(cookies: [StoredWebCookie]) async throws -> DashboardResponse {
         try await get("/api/user/dashboard", credential: .webCookies(cookies))
+    }
+
+    func accountUsage(cookies: [StoredWebCookie]) async throws -> AccountUsageResponse {
+        try await get("/api/user/usage", credential: .webCookies(cookies),
+                      queryItems: [URLQueryItem(name: "days", value: "7")])
     }
 
     func account(cookies: [StoredWebCookie]) async throws -> UserAccountResponse {
@@ -203,7 +220,7 @@ final class YakCoolAPI {
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             request.httpBody = try encoder.encode(AnthropicMessagesProbeRequest(model: modelID))
         default:
-            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+            throw YConnectError.unsupported("Y CONNECT 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
         }
 
         let data = try await checkedData(for: request)
@@ -233,7 +250,7 @@ final class YakCoolAPI {
             text = response.content.first(where: { $0.type == nil || $0.type == "text" })?.text ?? ""
         default:
             // Unsupported values are rejected before a request is sent.
-            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+            throw YConnectError.unsupported("Y CONNECT 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
         }
         return ModelProbeResult(
             wireProtocol: wireProtocol,
@@ -347,7 +364,7 @@ final class YakCoolAPI {
         case .responses: path = "/v1/responses"
         case .anthropicMessages: path = "/v1/messages"
         default:
-            throw YConnectError.unsupported("YConnect 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
+            throw YConnectError.unsupported("Y CONNECT 暂不支持通过 \(wireProtocol.title) 执行最小模型调用")
         }
         var endpoint = components
         endpoint.path = path
@@ -357,8 +374,8 @@ final class YakCoolAPI {
         return url
     }
 
-    private func get<T: Decodable>(_ path: String, credential: RequestCredential) async throws -> T {
-        var request = try makeRequest(path: path, method: "GET", credential: credential)
+    private func get<T: Decodable>(_ path: String, credential: RequestCredential, queryItems: [URLQueryItem] = []) async throws -> T {
+        var request = try makeRequest(path: path, method: "GET", credential: credential, queryItems: queryItems)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return try decodeResponse(await checkedData(for: request))
     }
@@ -378,13 +395,18 @@ final class YakCoolAPI {
         return try decodeResponse(await checkedData(for: request))
     }
 
-    private func makeRequest(path: String, method: String, credential: RequestCredential) throws -> URLRequest {
+    private func makeRequest(path: String, method: String, credential: RequestCredential, queryItems: [URLQueryItem] = []) throws -> URLRequest {
         guard path.hasPrefix("/"), !path.contains("?"),
               let url = URL(string: path, relativeTo: origin)?.absoluteURL,
               url.host?.lowercased() == origin.host?.lowercased() else {
             throw YConnectError.unsupported("请求路径不安全")
         }
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw YConnectError.unsupported("请求路径不安全")
+        }
+        if !queryItems.isEmpty { components.queryItems = queryItems }
+        guard let endpoint = components.url else { throw YConnectError.unsupported("请求路径不安全") }
+        var request = URLRequest(url: endpoint, timeoutInterval: 20)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
