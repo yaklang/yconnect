@@ -147,7 +147,15 @@ enum ClientLauncher {
         }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        _ = try await NSWorkspace.shared.open([plan.commandURL], withApplicationAt: terminal, configuration: configuration)
+        // The macOS 14 SDK's async overlay moves non-Sendable AppKit objects
+        // across actors. Keep the request on the main actor and bridge only
+        // its completion, without transferring NSRunningApplication.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            NSWorkspace.shared.open([plan.commandURL], withApplicationAt: terminal, configuration: configuration) { _, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: ()) }
+            }
+        }
         for _ in 0..<150 {
             try await Task.sleep(for: .milliseconds(200))
             if let status = try? String(contentsOf: plan.exitURL), let code = Int32(status.trimmingCharacters(in: .whitespacesAndNewlines)), code != 0 {
