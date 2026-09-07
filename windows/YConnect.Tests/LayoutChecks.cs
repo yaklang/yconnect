@@ -112,6 +112,11 @@ internal static class LayoutChecks
                 Save(root, output, theme + "-clients"); Layout(root, 850, 640); Save(root, output, theme + "-clients-narrow");
                 manager.Navigate("models"); Layout(root, 1080, 760); Find<Button>(root, "model-filter-responses"); Find<Button>(root, "model-filter-anthropic_messages"); Find<Button>(root, "model-filter-chat_completions"); Save(root, output, theme + "-models");
                 manager.Navigate("checks"); Layout(root, 1080, 760); Find<Button>(root, "probe-quality"); Require(All<TextBlock>(root).Any(x => x.Text == "模型能力画像"), "Quality profile results missing."); Save(root, output, theme + "-checks");
+                // Compare copy feedback in isolation. The preceding quality/payment
+                // checks leave a transient notice whose four-second timer can remove
+                // an unrelated row between measurements on a slower CI runner.
+                store.ClearMessage(store.Message);
+                ((DispatcherTimer)typeof(AppController).GetField("feedbackTimer", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app)).Stop();
                 foreach (var section in new[] { "", "protocols", "models" })
                 {
                     Section(app.Widget, section); var widgetRoot = (FrameworkElement)app.Widget.Content; Layout(widgetRoot, 400, double.PositiveInfinity);
