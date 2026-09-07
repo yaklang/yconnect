@@ -25,8 +25,8 @@ namespace YConnect.Views
         {
             rendering = true;
             var store = controller.Store;
-            var share = Ui.SmallButton(controller.CopyLabel("share", "复制接入信息"), Id("copy-access"), () => controller.CopyAccess(), "Primary");
-            share.Width = 94; share.MinHeight = 30; share.ToolTip = "包含当前 Key、模型与接入地址，请仅交给可信的人"; share.IsEnabled = store.CurrentKey != null;
+            var share = Ui.SmallButton(controller.CopyLabel("share", "复制完整接入"), Id("copy-access"), () => controller.CopyAccess(), "Primary");
+            share.Width = 98; share.MinHeight = 30; share.ToolTip = "包含完整模型清单、全部协议地址和当前 Key；60 秒后自动清理，请仅交给可信的人"; share.IsEnabled = store.CurrentKey != null;
             var panel = Ui.Stack(Ui.Between(Ui.Label("当前连接", 13, "Ink", true), share), Ui.Gap(10));
             FrameworkElement selection;
             if (store.Mode == "account")

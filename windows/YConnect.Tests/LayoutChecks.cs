@@ -73,11 +73,28 @@ internal static class LayoutChecks
             store.Preferences.SidebarCollapsed = true;
             var manager = app.Manager; Require(!manager.SidebarCollapsed, "Manager must start expanded, even with a previously collapsed preference.");
             var root = (FrameworkElement)manager.Content;
+            var share = app.BuildAccessText("gpt-5.4");
+            Require(share.Contains(DemoApi.Key) && share.Contains(YakCoolApi.Gateway + "/v1/responses") && share.Contains("YakCool:") && DemoApi.Models.All(m => share.Contains(m.Name) && share.Contains(m.Id)), "Complete copy payload must include key, URLs, brand and every model.");
+            store.ProbeQuality("gpt-5.4", "responses", true).GetAwaiter().GetResult();
+            Require(store.QualityChecks.Count == 15 && store.QualityChecks.All(x => new[] { "passed", "unsupported" }.Contains(x.State)), "Demo quality profile did not complete all capability checks.");
             foreach (var theme in new[] { "light", "dark" })
             {
+                Ui.SetTheme(theme);
+                var rechargeSession = store.NewRechargeSession();
+                var recharge = new RechargeWindow(app, rechargeSession); var rechargeRoot = (FrameworkElement)recharge.Content;
+                Layout(rechargeRoot, 460, double.PositiveInfinity); Find<TextBox>(rechargeRoot, "recharge-amount"); Find<Button>(rechargeRoot, "recharge-create");
+                Save(rechargeRoot, output, theme + "-recharge-amount");
+                rechargeSession.Create(5000, "wechat").GetAwaiter().GetResult(); recharge.Render(); Layout(rechargeRoot, 460, double.PositiveInfinity);
+                Find<Image>(rechargeRoot, "recharge-qr"); Save(rechargeRoot, output, theme + "-recharge-qr");
+                foreach (var scale in new[] { 100, 125, 150 })
+                    using (var rendered = new System.Drawing.Bitmap(Path.Combine(output, theme + "-recharge-qr-" + scale + ".png")))
+                        Require(new ZXing.BarcodeReader().Decode(rendered)?.Text == rechargeSession.CodeUrl, "Rendered recharge QR could not be decoded: " + theme + " " + scale);
+                ((DemoApi)store.Api).CompleteDemoPayment(); rechargeSession.Query().GetAwaiter().GetResult(); recharge.Render(); Layout(rechargeRoot, 460, double.PositiveInfinity); Save(rechargeRoot, output, theme + "-recharge-paid");
+                Require(!All<Image>(rechargeRoot).Any(x => AutomationProperties.GetAutomationId(x) == "recharge-qr"), "Paid checkout still contains QR."); recharge.Close();
                 Ui.SetTheme(theme); manager.Navigate("overview"); Layout(root, 1080, 760);
                 Require(ReferenceEquals(application.Controller, app) && !Motion.Allowed, "Rendering must not start production services or animations.");
                 Require(((SolidColorBrush)Ui.Brush("Sidebar")).Color != ((SolidColorBrush)Ui.Brush("Surface")).Color, "Sidebar must be distinct from content.");
+                Find<Button>(root, "manager-recharge"); Find<Button>(root, "overview-recharge");
                 foreach (var id in new[] { "key-select", "copy-key", "copy-access", "new-key", "protocols", "model-search", "refresh", "pin", "checks", "redeem", "signout", "settings", "keys" })
                     Require(All<FrameworkElement>(root).Any(x => AutomationProperties.GetAutomationId(x) == "overview-" + id), "Overview missing " + id);
                 foreach (var client in store.Clients.InstalledClients(store.Preferences.RecentClients)) Find<Button>(root, "overview-client-" + client.Id);
@@ -89,13 +106,22 @@ internal static class LayoutChecks
                 Save(root, output, theme + "-overview-narrow");
                 Layout(root, 1080, 760); Require(clientGrid.ColumnDefinitions.Count == 2, "Client grid must return to two columns when widened.");
                 manager.Navigate("clients"); Layout(root, 1080, 760);
+                Find<Button>(root, "client-launch"); Find<Button>(root, "client-terminal"); Find<TextBox>(root, "launch-directory"); Find<ComboBox>(root, "launch-terminal");
                 var clientButtons = All<Button>(root).Where(x => AutomationProperties.GetAutomationId(x).StartsWith("client-select-")).ToArray();
                 Require(clientButtons.Length > 0 && clientButtons.All(x => x.ActualHeight >= 32) && clientButtons.Select(x => x.ActualHeight).Distinct().Count() == 1, "Client rows must be laid out with even heights.");
                 Save(root, output, theme + "-clients"); Layout(root, 850, 640); Save(root, output, theme + "-clients-narrow");
+                manager.Navigate("models"); Layout(root, 1080, 760); Find<Button>(root, "model-filter-responses"); Find<Button>(root, "model-filter-anthropic_messages"); Find<Button>(root, "model-filter-chat_completions"); Save(root, output, theme + "-models");
+                manager.Navigate("checks"); Layout(root, 1080, 760); Find<Button>(root, "probe-quality"); Require(All<TextBlock>(root).Any(x => x.Text == "模型能力画像"), "Quality profile results missing."); Save(root, output, theme + "-checks");
+                // Compare copy feedback in isolation. The preceding quality/payment
+                // checks leave a transient notice whose four-second timer can remove
+                // an unrelated row between measurements on a slower CI runner.
+                store.ClearMessage(store.Message);
+                ((DispatcherTimer)typeof(AppController).GetField("feedbackTimer", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app)).Stop();
                 foreach (var section in new[] { "", "protocols", "models" })
                 {
                     Section(app.Widget, section); var widgetRoot = (FrameworkElement)app.Widget.Content; Layout(widgetRoot, 400, double.PositiveInfinity);
                     var disclosure = Find<Button>(widgetRoot, "widget-protocols");
+                    Find<Button>(widgetRoot, "widget-recharge");
                     Require(disclosure.Padding.Left >= 8 && disclosure.MinHeight >= 32, "Disclosure needs safe label spacing.");
                     Require(disclosure.FocusVisualStyle != null, "Keyboard-only focus indication must remain available.");
                     Require(All<FrameworkElement>(disclosure).All(x => x.Name != "FocusRing"), "Mouse focus must not leave the old colliding red outline.");

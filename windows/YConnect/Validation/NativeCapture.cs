@@ -17,6 +17,8 @@ namespace YConnect.Validation
         [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr handle, out Rect rectangle);
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Drawing.Point point);
+        [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr handle, uint flags);
         // Captures only this application's HWND, over a controlled opaque WPF
         // backdrop. It validates DWM/layered-window alpha, not just a visual tree.
         public static async Task Save(Window window, string path, bool darkBackdrop = false, bool activate = true)
@@ -30,6 +32,9 @@ namespace YConnect.Validation
             {
                 backdrop.Show(); WindowsDesktop.Move(backdrop, bounds.Left - 16, bounds.Top - 16); window.Topmost = true;
                 SetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10); if (activate) window.Activate(); await Task.Delay(350);
+                // Refuse a composition screenshot if another app covers our HWND.
+                foreach (var point in new[] { new Drawing.Point(bounds.Left + 32, bounds.Top + 32), new Drawing.Point((bounds.Left + bounds.Right) / 2, (bounds.Top + bounds.Bottom) / 2), new Drawing.Point(bounds.Right - 32, bounds.Bottom - 32) })
+                    if (GetAncestor(WindowFromPoint(point), 2) != handle) throw new InvalidOperationException("Native capture target is covered by another window; composition not verified");
                 using (var bitmap = new Drawing.Bitmap(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top))
                 using (var graphics = Drawing.Graphics.FromImage(bitmap))
                 {

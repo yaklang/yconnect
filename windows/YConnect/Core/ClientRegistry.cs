@@ -12,6 +12,7 @@ namespace YConnect.Core
         public string Id { get; set; }
         public string Name { get; set; }
         public string[] Protocols { get; set; } = new string[0];
+        public string[] ReportedProtocols { get; set; } = new string[0];
         public override string ToString() => Name + "  ·  " + Id;
     }
     public sealed class ClientDescriptor
@@ -105,7 +106,9 @@ namespace YConnect.Core
             if (descriptor.Bridge) throw new InvalidOperationException("Gemini CLI 需要 generateContent 协议桥，当前不能直接应用");
             var available = descriptor.Compatible(models).ToArray();
             var selected = available.FirstOrDefault(m => m.Id == modelId) ?? throw new InvalidOperationException("模型不支持此客户端的原生协议");
-            var protocol = descriptor.Protocols.First(selected.Protocols.Contains);
+            // Multi-protocol clients prefer the model's native upstream mode when known;
+            // every model still remains available through all YakCool gateway entrances.
+            var protocol = selected.ReportedProtocols.FirstOrDefault(descriptor.Protocols.Contains) ?? descriptor.Protocols.First(selected.Protocols.Contains);
             var eligible = new[] { selected }.Concat(available.Where(m => m.Id != selected.Id && m.Protocols.Contains(protocol))).ToArray();
             foreach (var model in eligible) YakCoolApi.ValidateModel(model.Id);
             var files = Paths(id); var secret = Environment.Secret(id); var helperPath = Environment.Helper(id); var command = "\"" + helperPath + "\"";

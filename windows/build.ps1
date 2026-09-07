@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Test,[switch]$Smoke,[switch]$VerifyLogin,[switch]$Package,[switch]$Installer,[switch]$Run,[switch]$NoProxy)
+param([switch]$Test,[switch]$Smoke,[switch]$RechargeSmoke,[switch]$LauncherSmoke,[switch]$VerifyLogin,[switch]$Package,[switch]$Installer,[switch]$Run,[switch]$NoProxy)
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'YConnect\YConnect.csproj'
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VERSION') -Raw).Trim()
@@ -14,7 +14,7 @@ $binaryDirectory = Join-Path $PSScriptRoot 'YConnect\bin\Release\net48'
 $executable = Join-Path $binaryDirectory 'YConnect.exe'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $testRoot = Join-Path $PSScriptRoot ".test-output\$stamp"
-if ($Test) {
+if ($Test -or $LauncherSmoke) {
     dotnet build (Join-Path $PSScriptRoot 'YConnect.Tests\YConnect.Tests.csproj') -c $configuration --verbosity minimal
     if ($LASTEXITCODE -ne 0) { throw 'Test build failed' }
     & (Join-Path $PSScriptRoot 'YConnect.Tests\bin\Release\net48\YConnect.Tests.exe') (Join-Path $testRoot 'core')
@@ -37,12 +37,28 @@ function Invoke-NativeCheck([string]$Flag,[string]$Name) {
     if ($checkProcess.ExitCode -ne 0) { throw "$Name failed; see $checkOutput" }
 }
 if ($Smoke) { Invoke-NativeCheck '--smoke' 'native-ui' }
+if ($RechargeSmoke) { Invoke-NativeCheck '--verify-recharge' 'recharge-native-ui' }
 if ($VerifyLogin) { Invoke-NativeCheck '--verify-login' 'official-login' }
+function Invoke-LauncherCheck([string]$Runner,[string]$Name) {
+    $checkOutput = Join-Path $testRoot $Name
+    $harness = Join-Path $PSScriptRoot 'YConnect.LauncherTests\bin\Release\net48\YConnect.LauncherTests.exe'
+    $fixture = Join-Path $PSScriptRoot 'YConnect.Tests\bin\Release\net48\YConnect.Tests.exe'
+    $check = Start-Process -FilePath $harness -ArgumentList @(('"{0}"' -f $checkOutput),('"{0}"' -f $fixture),('"{0}"' -f $Runner)) -PassThru -WindowStyle Hidden
+    $deadline = [DateTime]::UtcNow.AddMinutes(3)
+    while (-not $check.WaitForExit(1000)) { if ([DateTime]::UtcNow -gt $deadline) { $check.Kill(); throw "Launcher test timed out: $checkOutput" } }
+    Get-Content -LiteralPath (Join-Path $checkOutput 'result.txt')
+    if ($check.ExitCode -ne 0) { throw "Launcher verification failed: $checkOutput" }
+}
+if ($LauncherSmoke) {
+    dotnet build (Join-Path $PSScriptRoot 'YConnect.LauncherTests\YConnect.LauncherTests.csproj') -c $configuration --verbosity minimal
+    if ($LASTEXITCODE -ne 0) { throw 'WPF launcher test build failed' }
+    Invoke-LauncherCheck (Join-Path $binaryDirectory 'YConnect.Launcher.exe') 'interactive-launchers'
+}
 if ($Package) {
     $portable = Join-Path $PSScriptRoot "artifacts\YConnect-$version-windows-x64-$stamp"
     [void][System.IO.Directory]::CreateDirectory($portable)
     # No framework, browser runtime, PDBs, tests or companion repositories.
-    $files = @('YConnect.exe','YConnect.exe.config','Newtonsoft.Json.dll','Tomlyn.dll','YamlDotNet.dll','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','WebView2Loader.dll')
+    $files = @('YConnect.exe','YConnect.exe.config','YConnect.Launcher.exe','YConnect.Launcher.exe.config','Newtonsoft.Json.dll','QRCoder.dll','Tomlyn.dll','YamlDotNet.dll','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','WebView2Loader.dll')
     foreach ($file in $files) { Copy-Item -LiteralPath (Join-Path $binaryDirectory $file) -Destination $portable }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $portable
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'UX.md') -Destination $portable
@@ -65,6 +81,11 @@ if ($Package) {
         $executable = Join-Path $portable 'YConnect.exe'
         Invoke-NativeCheck '--smoke' 'packaged-native-ui'
     }
+    if ($RechargeSmoke) {
+        $executable = Join-Path $portable 'YConnect.exe'
+        Invoke-NativeCheck '--verify-recharge' 'packaged-recharge-native-ui'
+    }
+    if ($LauncherSmoke) { Invoke-LauncherCheck (Join-Path $portable 'YConnect.Launcher.exe') 'packaged-interactive-launchers' }
     if ($Run) { $executable = Join-Path $portable 'YConnect.exe' }
 }
 if ($Run) { if ($NoProxy) { Start-Process -FilePath $executable -ArgumentList '--no-proxy' -WindowStyle Hidden } else { Start-Process -FilePath $executable -WindowStyle Hidden } }

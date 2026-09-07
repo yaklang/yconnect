@@ -22,6 +22,32 @@ namespace YConnect.Core
             public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
         }
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInfoNative info);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, StringBuilder path, uint size, uint flags);
+        public static string PhysicalPath(string path, bool rejectLinks = true)
+        {
+            // MSIX can redirect AppData writes without marking the logical path as
+            // a reparse point. A process outside that package sees different files.
+            // Resolve an existing ancestor by handle before handing paths to a CLI.
+            path = Path.GetFullPath(path); if (rejectLinks) AssertPlainPath(path);
+            var missing = new Stack<string>(); var ancestor = path;
+            while (!File.Exists(ancestor) && !Directory.Exists(ancestor))
+            {
+                missing.Push(Path.GetFileName(ancestor)); ancestor = Path.GetDirectoryName(ancestor);
+                if (string.IsNullOrEmpty(ancestor)) throw new DirectoryNotFoundException("无法定位启动文件的实际目录");
+            }
+            using (var handle = CreateFile(ancestor, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero))
+            {
+                if (handle.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                var buffer = new StringBuilder(32768); var size = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+                if (size == 0 || size >= buffer.Capacity) throw new IOException("无法解析启动文件的实际路径");
+                var resolved = buffer.ToString();
+                if (resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) resolved = @"\\" + resolved.Substring(8);
+                else if (resolved.StartsWith(@"\\?\")) resolved = resolved.Substring(4);
+                foreach (var part in missing) resolved = Path.Combine(resolved, part);
+                if (rejectLinks) AssertPlainPath(resolved); return resolved;
+            }
+        }
         public static void AssertPlainPath(string target)
         {
             var current = Path.GetFullPath(target);

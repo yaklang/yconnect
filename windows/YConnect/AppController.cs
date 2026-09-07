@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -17,6 +18,7 @@ namespace YConnect
     public sealed class AppController : IDisposable
     {
         public YConnectStore Store { get; }
+        public ClientLaunches Launches { get; } = new ClientLaunches();
         public WidgetWindow Widget { get; }
         private ManagerWindow manager;
         public ManagerWindow Manager => manager ?? (manager = new ManagerWindow(this));
@@ -29,6 +31,12 @@ namespace YConnect
         private readonly DispatcherTimer refresh = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
         private readonly System.Threading.RegisteredWaitHandle activationWait;
         private WebLoginWindow login;
+        private bool resumeRechargeAfterLogin;
+        private RechargeWindow recharge;
+        private RechargeSession rechargeSession;
+        public RechargeWindow Recharge => recharge;
+        public RechargeSession RechargeSession => Store.Mode != "account" ? null : rechargeSession?.IsCurrent == true ? rechargeSession : (rechargeSession = Store.NewRechargeSession());
+        public RechargeSession StartAnotherRecharge() => rechargeSession = Store.NewRechargeSession();
         private bool renderQueued;
         private readonly DispatcherTimer feedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         private string feedbackMessage, copiedId;
@@ -47,7 +55,7 @@ namespace YConnect
             Widget = new WidgetWindow(this); Edge = new EdgeDock(this);
             tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(), Text = "YConnect · 连接你的 YakCool", Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) ToggleWidget(); }; tray.DoubleClick += (s, e) => ShowManager("overview");
-            Store.Changed += StoreChanged; UpdateTray();
+            Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
             refresh.Tick += async (s, e) => { if (!Store.Busy && Store.Authenticated) await Store.Run(Store.Refresh); }; refresh.Start();
             if (activation != null) activationWait = System.Threading.ThreadPool.RegisterWaitForSingleObject(activation, (s, t) => Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!Quitting) ShowWidget(); })), null, System.Threading.Timeout.Infinite, false);
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
@@ -57,7 +65,7 @@ namespace YConnect
         }
         private void StoreChanged()
         {
-            if (renderQueued) return; renderQueued = true;
+            if (Quitting || renderQueued) return; renderQueued = true;
             Application.Current.Dispatcher.BeginInvoke(new Action(() => { renderQueued = false; Widget.Render(); manager?.Render(); Edge.Refresh(); UpdateTray(); if (!string.IsNullOrEmpty(Store.Message) && feedbackMessage != Store.Message) { feedbackMessage = Store.Message; feedbackTimer.Stop(); feedbackTimer.Start(); } }), DispatcherPriority.Background);
         }
         private void DisplayChanged(object sender, EventArgs args) => Application.Current.Dispatcher.BeginInvoke(new Action(() => { ActiveScreen = Forms.Screen.AllScreens.FirstOrDefault(s => s.DeviceName == ActiveScreen.DeviceName) ?? Forms.Screen.PrimaryScreen; PositionAll(); }));
@@ -94,10 +102,16 @@ namespace YConnect
         public async Task SignOut() { if (Store.Authenticated && Confirm("登出 YConnect？", "清除本次登录。已应用的客户端配置会保留，可在客户端适配中单独恢复。", "登出")) await Store.Run(Store.SignOut); }
         public async Task LoginAccount()
         {
-            if (Store.Environment.Demo) { await Store.Run(() => Store.LoginAccount("demo-public-session-only")); return; }
+            if (Store.Environment.Demo) { await Store.Run(() => Store.LoginAccount("demo-public-session-only")); if (resumeRechargeAfterLogin) { resumeRechargeAfterLogin = false; OpenRecharge(); } return; }
             if (login != null) { login.Activate(); return; }
-            login = new WebLoginWindow(this); login.Closed += (s, e) => login = null; login.Show();
+            var previousRefresh = Store.LastRefresh;
+            login = new WebLoginWindow(this); login.Closed += (s, e) =>
+            {
+                login = null; var resume = resumeRechargeAfterLogin; resumeRechargeAfterLogin = false;
+                if (resume && !Quitting && Store.Mode == "account" && Store.LastRefresh != previousRefresh) OpenRecharge();
+            }; login.Show();
         }
+        public Task LoginForRecharge() { resumeRechargeAfterLogin = true; return LoginAccount(); }
         public bool? ShowDialog(DialogWindow dialog)
         {
             ModalOpen = true;
@@ -134,14 +148,37 @@ namespace YConnect
         {
             try
             {
-                model = model ?? Store.Preferences.CurrentModel;
-                if (!Store.Models.Any(m => m.Id == model)) model = Store.FrequentModels.FirstOrDefault()?.Id;
-                var text = "以下接入信息由 YConnect 生成。\n你可以按照自己的工具和使用习惯，选择合适的协议接入 YakCool。\n\n";
-                if (model != null && Store.Models.Any(m => m.Id == model)) text += "模型: " + model + "\n";
-                text += string.Join("\n", Endpoints.Select(e => e.Label + ": " + e.Url)) + "\nAPI Key: " + Store.RequireKey();
-                CopyText(text, "share", true);
+                CopyText(BuildAccessText(model), "share", true);
             }
             catch (Exception e) { Store.SetError(e.Message); }
+        }
+        public string BuildAccessText(string model = null)
+        {
+            var key = Store.RequireKey();
+            model = model ?? Store.Preferences.CurrentModel;
+            var selected = Store.Models.FirstOrDefault(m => m.Id == model) ?? Store.FrequentModels.FirstOrDefault();
+            var client = ClientRegistry.All.FirstOrDefault(c => c.Id == Store.Preferences.SelectedClient);
+            var text = new StringBuilder();
+            text.AppendLine("YConnect × YakCool · AI 模型接入信息");
+            text.AppendLine("连接自然流动，让好模型进入每一个工作流。");
+            text.AppendLine();
+            if (selected != null) text.AppendLine("当前推荐: " + selected.Name + " (" + selected.Id + ")");
+            if (client != null) text.AppendLine("当前客户端: " + client.Name);
+            text.AppendLine("可用协议: " + string.Join(" / ", YakCoolApi.Protocols.Select(Ui.Protocol)));
+            text.AppendLine();
+            text.AppendLine("接入地址");
+            foreach (var endpoint in Endpoints) text.AppendLine("- " + endpoint.Label + ": " + endpoint.Url);
+            text.AppendLine();
+            text.AppendLine("可用模型（" + Store.Models.Count + "）");
+            foreach (var item in Store.Models.OrderByDescending(m => selected != null && m.Id == selected.Id).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
+                text.AppendLine("- " + item.Name + " | " + item.Id + " | " + string.Join(" / ", item.Protocols.Select(Ui.Protocol)));
+            text.AppendLine();
+            text.AppendLine("API Key: " + key);
+            text.AppendLine();
+            text.AppendLine("由 YakCool 提供统一模型网关、余额与客户端接入能力。");
+            text.AppendLine("YakCool: " + YakCoolApi.Origin);
+            text.Append("YConnect: https://github.com/yaklang/yconnect");
+            return text.ToString();
         }
         private static void CopySensitive(string value)
         {
@@ -172,11 +209,47 @@ namespace YConnect
             if (revision == copyRevision) Store.SetError("暂时无法写入剪贴板，请重试");
         }
         public void OpenData() { Directory.CreateDirectory(Store.Environment.DataRoot); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Store.Environment.DataRoot) { UseShellExecute = true }); }
+        public async Task LaunchClient(string directory, string terminal, bool autoStart)
+        {
+            try
+            {
+                if (Store.Environment.Development) throw new InvalidOperationException("当前为隔离预览环境，不会启动真实客户端；请在正式安装版体验启动器");
+                var client = Store.Preferences.SelectedClient;
+                var plan = ClientLauncher.Build(Store.Environment, client, Store.SelectedModel, Store.Models.ToArray(), Store.RequireKey(), directory, terminal, autoStart);
+                // Capture and save selections before awaiting, so out-of-order completions
+                // cannot overwrite the settings for a newer launch. No global Busy lock.
+                Store.Preferences.LaunchDirectory = directory; Store.Preferences.LaunchTerminal = terminal;
+                Store.Preferences.RecentClients = new[] { client }.Concat(Store.Preferences.RecentClients.Where(c => c != client)).Take(8).ToArray();
+                Store.SavePreferences();
+                var attempt = await Launches.Start(plan, terminal);
+                if (!Quitting && attempt.State == "ready") Store.SetMessage(attempt.Detail);
+            }
+            catch (Exception error) { Store.SetError(error.Message); }
+        }
+        public async void QuickLaunch(string id)
+        {
+            Store.SelectClient(id);
+            if (!ClientLauncher.CanAutoStart(id) || !Directory.Exists(Store.Preferences.LaunchDirectory)) { ShowManager("clients"); return; }
+            if (Store.Clients.Get(id).Compatible(Store.Models).Any(m => m.Id == Store.Preferences.CurrentModel)) Store.SelectModel(Store.Preferences.CurrentModel);
+            await LaunchClient(Store.Preferences.LaunchDirectory, Store.Preferences.LaunchTerminal, true);
+        }
+        public void OpenRecharge()
+        {
+            try
+            {
+                if (recharge != null) { if (recharge.WindowState == WindowState.Minimized) recharge.WindowState = WindowState.Normal; recharge.Activate(); return; }
+                recharge = new RechargeWindow(this, RechargeSession);
+                recharge.Closed += (s, e) => recharge = null;
+                recharge.Show(); recharge.Activate();
+            }
+            catch (Exception e) { Store.SetError("无法打开充值中心：" + e.Message); }
+        }
         private void UpdateTray()
         {
             var status = BalancePresentation.From(Store, Store.Preferences.PeekPercentageOnly).Value; tray.Text = "YConnect · " + status;
             var old = tray.ContextMenuStrip; var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("打开小组件", null, (s, e) => ShowWidget()); menu.Items.Add("打开管理中心", null, (s, e) => ShowManager("overview"));
+            menu.Items.Add("充值账户余额", null, (s, e) => OpenRecharge());
             var copy = menu.Items.Add("复制当前 API Key", null, (s, e) => CopyKey()); copy.Enabled = !string.IsNullOrEmpty(Store.CurrentKey); menu.Items.Add(new Forms.ToolStripSeparator());
             var visible = new Forms.ToolStripMenuItem("显示屏幕边缘入口") { Checked = Store.Preferences.EdgeEnabled }; visible.Click += (s, e) => { Store.Preferences.EdgeEnabled = !Store.Preferences.EdgeEnabled; Store.SavePreferences(); PositionAll(); }; menu.Items.Add(visible);
             var pin = new Forms.ToolStripMenuItem("固定小组件") { Checked = Store.Preferences.Pinned }; pin.Click += (s, e) => { Store.Preferences.Pinned = !Store.Preferences.Pinned; Store.SavePreferences(); }; menu.Items.Add(pin);
@@ -194,7 +267,7 @@ namespace YConnect
                 var handle = bitmap.GetHicon(); try { return (Drawing.Icon)Drawing.Icon.FromHandle(handle).Clone(); } finally { DestroyIcon(handle); }
             }
         }
-        public void Quit() { Quitting = true; Dispose(); Application.Current.Shutdown(); }
-        public void Dispose() { refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
+        public void Quit() { Quitting = true; Launches.Changed -= StoreChanged; Launches.Dispose(); Dispose(); Application.Current.Shutdown(); }
+        public void Dispose() { refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; recharge?.Close(); (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
     }
 }

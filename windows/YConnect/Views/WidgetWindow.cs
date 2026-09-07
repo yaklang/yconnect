@@ -73,7 +73,8 @@ namespace YConnect.Views
             var store = controller.Store; var balance = BalancePresentation.From(store);
             var value = Ui.Id(Ui.Text(balance.Value, 24, "Ink", true), "widget-balance-value");
             var status = Ui.Stack(Ui.Text(store.Mode == "account" ? "● 账户已安全连接" : "● Key 已安全连接", 11, "Green", true), Ui.Gap(5), Ui.Text(balance.Label + (balance.Stale ? " · 待同步" : ""), 10, "Muted"));
-            return Ui.Card(Ui.Stack(Ui.Between(status, value), Ui.Gap(10), Ui.QuotaBar(balance.Percent, 3)), 10, "SurfaceAlt");
+            var recharge = Ui.SmallButton("充值  ↗", "widget-recharge", controller.OpenRecharge, "Primary"); recharge.MinWidth = 62;
+            return Ui.Card(Ui.Stack(Ui.Between(status, recharge), Ui.Gap(7), value, Ui.Gap(9), Ui.QuotaBar(balance.Percent, 3)), 10, "SurfaceAlt");
         }
         private int expansionRevision;
         private void AnimateConnectionChange()
@@ -91,10 +92,13 @@ namespace YConnect.Views
             scroll.BeginAnimation(HeightProperty, animation);
             Motion.Page(body);
         }
-        private Button QuickClient(ClientDescriptor d)
+        private FrameworkElement QuickClient(ClientDescriptor d)
         {
             var button = Ui.Button("", "widget-client-" + d.Id, () => { controller.Store.SelectClient(d.Id); controller.ShowManager("clients"); }); button.Padding = new Thickness(8, 5, 8, 5); button.MinHeight = 32; button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            button.Content = Ui.IconLabel(Ui.AppMark(d, 24), Ui.Label(d.Name, 12, "Ink", true), 24, 8); return button;
+            button.Content = Ui.IconLabel(Ui.AppMark(d, 24), Ui.Label(d.Name, 12, "Ink", true), 24, 8);
+            if (!ClientLauncher.CanAutoStart(d.Id)) return button;
+            var launch = Ui.IconButton("\uE768", "在新终端启动 " + d.Name, "widget-launch-" + d.Id, () => controller.QuickLaunch(d.Id)); launch.Width = 30; launch.IsEnabled = !controller.Store.Busy && controller.Store.CurrentKey != null;
+            return Ui.Between(button, launch);
         }
         public FrameworkElement LoginContent()
         {

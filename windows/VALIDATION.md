@@ -1,5 +1,60 @@
 # Windows 本机验证记录
 
+## 2026-09-06 · MSIX AppData 重定向根因
+
+- 安装路径真实复现 `read-session/DirectoryNotFoundException`，但 `C:\Users\V\Documents` 和逻辑会话目录均存在。用文件句柄核验发现 `AppData\Local\YConnect\LaunchSessions` 实际位于 Codex MSIX 包的 `LocalCache\Local\YConnect\LaunchSessions`；外部 Windows Terminal 不共享这一重定向视图。不是工作目录不存在，也不是 .NET 启动前退出；此前 CMD 中转猜测未解决此根因，已移除。
+- 会话目录、隔离客户端配置路径、工作目录及可执行文件按句柄解析实际路径。一次性 DPAPI 信封仍消费即删除，Key 不进入命令行；未迁移、删除或重建用户登录。保留独立多会话、PowerShell 模块路径初始化和有界等待修复。
+- 真实账户与本机安装启动器验证记录 `windows/.test-output/live-physical-path/result.txt`：Codex 和 Grok Build 均以 `deepseek-v4-flash`、真实 Documents 工作目录成功进入客户端启动阶段，未发送模型提示词。新增 AppData 到外部 Windows Terminal 的自动回归，避免只在 Documents 项目目录内验证而漏过包重定向。
+- 仍明确区分进程启动与完整 TUI/模型对话验收。终端 UI 不能由桌面操作技能自动操控，已请求用户确认实际界面。
+- 用户随后确认上述 Codex / Grok 两个窗口均为正常客户端界面。最终 57 项回归通过（包含 MSIX AppData 跨进程测试），包 `windows/artifacts/YConnect-0.2.0-windows-x64-20260906-213231/` 的 15 个文件已完整替换本机安装并逐项核对哈希，重启管理中心；替换前后登录及偏好哈希一致。旧文件备份 `windows/artifacts/local-backup-before-physical-path-20260906-213231/`。这次替换包含主程序和启动器，不只是重启旧版。
+
+## 2026-09-06 · 交互启动、多会话与验证纠正
+
+- 复现了实际交互路径的问题：Windows PowerShell `-NoExit` 在继承 PowerShell 7 的 `PSModulePath` 时停在初始化，启动脚本第一行未执行；相同命令仅移除新进程继承的模块路径后恢复正常。不修改用户或机器环境。此前自动退出的只读命令测试不足以覆盖这一问题。
+- 启动不再使用全局 `Store.Run/Busy`，每个请求单独捕获 Key、模型、目录并记录结果；停止等待与失败不会阻塞其他请求。创建进程移到后台；PID 与创建时间回执使关闭后的请求及时结束。Windows Terminal 的路径交接采用编码数据，覆盖工作目录中的中文、空格、`&` 和字面 `%PATH%`。
+- 56 项核心回归通过，最终记录 `windows/.test-output/20260906-181009/core/results.txt`。WinExe/WPF 交互集成验证位于 `windows/.test-output/20260906-170812/`：两个长驻交互测试子进程并行、不同 Key/模型/目录、真实控制台输入输出句柄、UI 仍启用、关闭一个不影响另一个、第三次启动、CMD/PowerShell，以及本机 Codex/Grok 的交互启动。测试使用假 Key，没有发送模型提示词，**不是实际模型调用成功的证明**。
+- 原交互测试用强制结束清理子进程，导致 Windows Terminal 保留退出提示窗口，给用户桌面造成干扰；该清理缺陷不应忽略。已清理确认没有活动子会话的测试 Terminal 进程。调整为等待交互启动器正常结束，测试窗口明确命名“YConnect 验证（非客户端）”，不再冒充 Codex 界面。交互测试为显式 `-LauncherSmoke` 选项，不是常规构建要求。
+- `parallel-pending.png` / `parallel-ready.png` 为应用自身 WPF 排版截图；没有把这些图或进程存活结果冒充终端内点击、真实对话的验收。桌面操作技能禁止终端 UI 自动化，此边界须明确保留。
+
+## 2026-09-06 · Windows Terminal 启动交接修订
+
+- 不再在 UI 等待超时的 `finally` 中删除尚有效的会话。正常等待 30 秒，超时仍允许有效期内的延迟启动；会话保持两分钟 TTL、消费即删除，后台及下次启动清理过期加密信封。
+- `ready` 由专用终端中的确认命令或真正启动客户端的 `--run` 返回；缺少客户端/目录、损坏信封、过期请求和客户端立即失败均返回 `failed` 与阶段/类型/错误码，不再一律提示路径错误。错误诊断不序列化异常原文、环境或 Key。
+- 55 项回归通过；新增等待超时后原始信封仍能被延迟启动消费、只清理过期信封、失败阶段、立即非零退出与错误脱敏。首次证据位于 `windows/.test-output/terminal-fix-first/`。
+- 本机安装的 Grok 与 Codex 已通过 Windows Terminal 使用隔离目录和演示 Key 分别完成只读 `inspect` / `features list`，退出码为 0；没有发送模型提示词。证据目录 `windows/.test-output/terminal-fix-real-cli/`。不将只读 CLI 验证描述为真实付费会话验证，也未认定此前偶发失败一定由超时导致。
+- 最终 `build.ps1 -Test -Package` 输出为 `windows/artifacts/YConnect-0.2.0-windows-x64-20260906-162207/`，55 项测试通过；便携包与本机安装路径的启动器均再次完成真实 Windows Terminal / Grok / Codex 只读启动。已核对替换的 15 个载荷文件哈希并重启管理中心，账户会话与偏好哈希未变。旧版本保存在 `windows/artifacts/local-backup-before-terminal-fix-20260906-162207/`；没有关闭用户的客户端终端或改写其全局配置。
+
+## 2026-09-06 · 原生扫码充值
+
+- 充值入口已改为 C#/WPF 原生金额与支付弹窗，共用单实例。直接使用官网公开账户接口 `POST /api/payments/orders`、`GET /api/payments/orders/{order_no}`，不使用运维接口或业务 Key；充值前核对账户归属、整数分金额和返回订单编号。
+- 回归包含金额边界/小数精度、订单复用金额不符、双击并发、账户切换后的延迟响应、过期/失败/关闭/网络恢复，以及仅 `paid + verified` 才报成功。打开弹窗、重新打开未支付订单和登录后返回金额页均不会自动下单。
+- `build.ps1 -Test -RechargeSmoke -Package` 的 53 项测试与源码/便携包充值功能冒烟通过（初次完整证据：`windows/.test-output/20260906-143930/`）。新增浅色/深色金额、二维码、成功页 18 张截图，合计 78 张布局截图；二维码使用独立 ZXing 解码器验证 100% / 125% / 150% 截图。二维码生成依赖 QRCoder；ZXing 仅用于测试，不随应用打包。
+- 已逐张查看金额、深色二维码、付款成功与余额更新的 WPF 截图。自动执行的原生 WPF 控件测试覆盖自定义 12.34 元、支付宝、单实例与关闭重开、演示到账、全局余额更新、API Key 权限边界、账户登录后回到金额页。
+- 当前桌面合成截图被其他窗口遮挡，不能据此宣称真实 DWM 合成通过。增强截图 HWND 遮挡检查，遇到遮挡明确记录 `NOT VERIFIED`，不将其他应用图像当作本应用验证。旧完整冒烟也在桌面拖动断言处停止；该结果与充值功能通过分别记录。
+- 全部支付验证使用隔离 Demo/HTTP fixture；真实订单创建、扫码付款与实际支付平台到账尚未执行，真实支付请求为 0。二维码和会话不写入支付日志；关闭停止后续轮询，重启后历史订单在官网核对。
+- 最终重跑证据为 `windows/.test-output/20260906-144146/`：53 项测试、源码与便携包两轮充值功能验证通过；便携 ZIP 923,132 字节。已将 14 个载荷文件更新至 `%LOCALAPPDATA%/Programs/YConnect` 并逐文件核对哈希，停止旧实例后用 `--manager --recharge` 重启，仅打开金额输入页。登录会话哈希保持不变，旧程序备份在 `windows/artifacts/local-backup-before-recharge-20260906-144146/`。
+
+## 2026-09-06 · 独立终端启动器与健康检查复核
+
+- `windows/build.ps1 -Test -Smoke -Package` 完整通过：Release 0 警告 / 0 错误，47 项测试通过，源码二进制与便携包的两轮完整原生 WPF 冒烟均通过。证据目录为 `windows/.test-output/20260906-131433/`，含 100% / 125% / 150% 布局图、实际 Windows 合成图、鼠标拖动与聚焦/复制/配置应用恢复记录。实际查看了启动器、窄窗口、深色启动器、小组件及健康检查截图。
+- 真实免费检查使用本机已有登录，在只读诊断流程中确认服务、Key 和模型列表全部通过，返回 20 个授权模型，付费模型请求为 0。修正了官网 `enabled` 与旧客户端 `active/ok` 判断不一致的问题，演示数据也与官网契约对齐。额度用尽、空列表、未登录、Key 失效均有独立回归。
+- 模型探测不再使用统一 20 秒超时；模型等待上限 120 秒，完整画像 4 分钟，可取消。空响应不会被 thinking-off / effort 判为通过，截断与只有思考分别保留证据，错误答案标为待核实。基础请求失败后停止剩余请求，协议验证来自真实响应；工具回灌用仅在工具结果中出现的随机标记。
+- CMD、PowerShell 和真实 Windows Terminal 均通过原生子进程验证：Key 通过环境交接、工作目录正确，带空格/引号/反斜杠/百分号/与号的参数不会错位或执行。npm CMD shim 另有包含字面 `%PATH%` 的路径与参数回归。一次性凭证交接文件 DPAPI 加密，读取即删除；生成的脚本/配置/命令行不包含 Key。
+- 本机真实 Codex 和 Grok CLI 已用隔离目录接受临时 provider / 模型配置（`features list` / `inspect`），没有向模型发送提示词。其他适配器验证生成配置与参数，不声称已安装或实际运行全部客户端。
+- 独立启动保留全部原配置；OpenCode / Codex / Claude Code 可临时覆盖连接，Pi / Grok / Hermes 使用独立客户端目录。OpenClaw 准备专用终端，按需启动 agent / 网关；Claude Desktop 保留固定配置流程。小组件提供快捷启动。
+- 本机旧安装载荷备份于 `windows/artifacts/local-backup-before-launcher-20260906/`；更新时只替换程序文件，账户数据和第三方配置不在替换范围。
+
+## 2026-09-06 · 全协议目录、能力画像与充值入口
+
+- Release 编译 0 警告、0 错误，39 项测试全部通过；新增完整模型能力画像回归。
+- 模型目录不再把 AIBalance Provider 的原生上游模式误当成用户入口能力。所有可用模型展示并可筛选 Responses、Anthropic Messages、Chat Completions；多协议客户端配置仍优先采用服务端报告的原生模式。
+- 连接测试新增与 AIBalance 对齐的 15 项能力画像：协议、响应/指令、随机标记 OCR、工具 auto/结构/指定/回灌、thinking 开关和 6 档 reasoning effort。完整流程最多 13 次真实请求，工具结构不重复调用，基础失败会停止后续项目；结果区分“网关接受”与“观察到可见 thinking”。
+- 完整复制载荷覆盖当前模型/客户端、全部模型名称和 ID、三种协议、五个 URL、API Key 与 YakCool/YConnect 品牌入口，仍执行 60 秒敏感剪贴板清理。
+- 管理中心全局标题栏、概览余额卡、小组件余额卡和托盘均提供 YakCool 官方充值入口。
+- 新增并逐张查看模型目录、能力画像和小组件的浅色/深色 100%/125%/150% 渲染图；本轮一共生成 60 张隔离 PNG，证据位于 `windows/.test-output/quality-final/layout/`。
+- 原生 WPF 冒烟运行完成侧栏 12 次导航聚焦/选择回归与真实 Windows 合成截图；随后因目标窗口被其他窗口遮挡，安全拒绝鼠标拖动并停止，未把这次部分运行记录成完整通过。已有自动布局、协议载荷和 39 项测试均通过。
+- 本地 `related/aibalance-server` 已在 `yconnect.code-workspace` 中。源码中的协议矩阵、reasoning policy 与 provider validation 15 项定义已复核；本机未安装 Go SDK，因此没有重跑服务端 Go 测试。
+
 日期：2026-09-05。Windows x64 / .NET Framework 4.8 / WPF。
 基于 PR #7 `codex/macos-ux-reference` 的预览图与跨平台交互基线。本轮没有修改 macOS 实现。
 
