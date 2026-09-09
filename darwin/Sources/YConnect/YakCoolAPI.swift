@@ -41,7 +41,7 @@ struct ModelProbeResult: Equatable {
 final class YakCoolAPI: RechargeAPI {
     static let productionOrigin = URL(string: "https://yakcool.com")!
     static let productionGateway = URL(string: "https://aibalance.yaklang.com")!
-    static let userAgent = "YConnect/0.2.0"
+    static let userAgent = "YConnect/\(BuildInfo.version)"
 
     let origin: URL
     private let transport: HTTPTransport

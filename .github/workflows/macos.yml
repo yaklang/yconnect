@@ -5,20 +5,40 @@ on:
     branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sign-release:
+        description: Verify a signed release package without publishing
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      sign-release:
+        type: boolean
+        default: false
+    secrets:
+      APPLE_CERTIFICATE_BASE64:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_ACCOUNT_EMAIL:
+        required: false
+      APPLE_APP_PASSWORD:
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-${{ github.ref }}
+  group: macos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-test-render:
     name: Build, test, render, package
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +50,8 @@ jobs:
             echo "Tracked build artifact detected" >&2
             exit 1
           fi
-          bash -n script/*.sh
+          for script in script/*.sh; do bash -n "$script"; done
+          python3 script/version.py
 
       - name: Build release
         run: |
@@ -107,9 +128,40 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mounted_app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
 
       - name: Package universal production app
-        run: ./script/package-macos.sh --arch universal --dmg
+        run: ./script/package-macos.sh --arch universal
+
+      - name: Developer ID sign, notarize and staple app
+        if: inputs.sign-release
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          ./script/macos-codesign.sh "dist/darwin-universal/Y CONNECT.app"
+          ./script/macos-notarize.sh "dist/darwin-universal/Y CONNECT.app"
+
+      - name: Verify packaged launcher
+        run: python3 script/test-macos-launcher.py "dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+
+      - name: Create production DMG
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          ./script/create-macos-dmg.sh "dist/darwin-universal/Y CONNECT.app" "$version" universal "dist/YConnect-$version-darwin-universal.dmg"
+
+      - name: Notarize and staple DMG
+        if: inputs.sign-release
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: ./script/macos-notarize.sh "dist/YConnect-$(tr -d '[:space:]' < VERSION)-darwin-universal.dmg"
 
       - name: Verify universal release DMG
+        env:
+          SIGN_RELEASE: ${{ inputs.sign-release }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
@@ -125,6 +177,15 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
           test -L "$mount_dir/Applications"
+          if [[ "$SIGN_RELEASE" == true ]]; then
+            codesign -d --verbose=4 "$app" 2> "$RUNNER_TEMP/release-signature.txt"
+            grep -q "^TeamIdentifier=$APPLE_TEAM_ID$" "$RUNNER_TEMP/release-signature.txt"
+            grep -q '^Authority=Developer ID Application:' "$RUNNER_TEMP/release-signature.txt"
+            xcrun stapler validate "$app"
+            xcrun stapler validate "$dmg"
+            spctl --assess --type execute --verbose=4 "$app"
+            echo "Developer ID, notarization, stapling and Gatekeeper verified"
+          fi
 
       - name: Upload macOS release payload
         uses: actions/upload-artifact@v4

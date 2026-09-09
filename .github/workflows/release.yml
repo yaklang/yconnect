@@ -3,38 +3,65 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Serialize publication so an older run cannot move latest backwards.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  validate-tag:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check tag and release notes
+      - name: Check version, notes and release index behavior
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           set -euo pipefail
+          python3 script/version.py
           version="$(tr -d '[:space:]' < VERSION)"
-          test "$RELEASE_TAG" = "v$version"
-          test -f "docs/releases/$RELEASE_TAG.md"
+          if [[ "$IS_TAG" == true ]]; then test "$RELEASE_TAG" = "v$version"; fi
+          test -f "docs/releases/v$version.md"
+          for script in script/*.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s script/tests -v
   windows:
-    needs: validate-tag
+    needs: validate
     uses: ./.github/workflows/windows.yml
+    with:
+      sign-release: true
+    secrets:
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_URI: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_URI }}
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_APPLICATION_ID: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_APPLICATION_ID }}
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_CLIENT_SECRET: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CLIENT_SECRET }}
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME }}
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID }}
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_TIMESTAMP_URL: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_TIMESTAMP_URL }}
   macos:
-    needs: validate-tag
+    needs: validate
     uses: ./.github/workflows/macos.yml
+    with:
+      sign-release: true
+    secrets:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ACCOUNT_EMAIL: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
   publish:
     needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: write
+    env:
+      PUBLIC_BASE_URL: https://aliyun-oss.yaklang.com/yconnect
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -42,15 +69,33 @@ jobs:
           pattern: release-*
           path: release
           merge-multiple: true
-      - name: Verify assets and publish one cross-platform release
+      - name: Create manifest and checksums
+        run: python3 script/prepare-release-assets.py release
+      - name: Install official OSS client
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/aliyun/ossutil@v1.7.19
+          echo "$GOBIN" >> "$GITHUB_PATH"
+      - name: Upload and verify version files and release indexes
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_KEY_SECRET }}
+        run: bash script/publish-oss.sh release release-index
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          version="$(tr -d '[:space:]' < VERSION)"
-          test -s "release/YConnect-$version-windows-x64-setup.exe"
-          test -s "release/YConnect-$version-windows-x64.zip"
-          test -s "release/YConnect-$version-darwin-universal.dmg"
-          (cd release && sha256sum *.exe *.zip *.dmg > SHA256SUMS.txt)
           gh release create "$RELEASE_TAG" release/* --verify-tag --title "Y CONNECT $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --latest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-publication-evidence
+          path: |
+            release/manifest.json
+            release/SHA256SUMS*
+            release-index/*.json
+            release-index/*.txt

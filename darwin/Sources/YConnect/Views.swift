@@ -1730,7 +1730,7 @@ struct ManagerView: View {
                 }.padding(.top, 8)
             }
             LabeledContent("版本") {
-                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0")
+                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? BuildInfo.version)
             }
             LabeledContent("模式") { Text(store.environment.isDevelopment ? "开发隔离" : "正式") }
         }

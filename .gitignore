@@ -28,3 +28,6 @@ windows/**/obj/
 windows/Assets/*.ico
 !windows/Assets/yconnect.ico
 !windows/Assets/yconnect-tray.ico
+
+# Python validation caches
+__pycache__/

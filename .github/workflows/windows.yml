@@ -4,25 +4,62 @@ on:
     branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sign-release:
+        description: Verify a signed release package without publishing
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      sign-release:
+        type: boolean
+        default: false
+    secrets:
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_URI:
+        required: false
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_APPLICATION_ID:
+        required: false
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_CLIENT_SECRET:
+        required: false
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME:
+        required: false
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID:
+        required: false
+      AZURE_YAK_CODE_SIGN_KEY_VAULT_TIMESTAMP_URL:
+        required: false
 permissions:
   contents: read
 concurrency:
-  group: windows-${{ github.ref }}
+  group: windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build-test-package:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Install pinned signing tool
+        if: inputs.sign-release
+        run: dotnet tool install --global AzureSignTool --version 6.0.1
+      - name: Check version
+        run: python script/version.py
       - name: Build, test and package native WPF app
         shell: pwsh
-        run: ./windows/build.ps1 -Test -Package -Installer
+        env:
+          SIGN_RELEASE: ${{ inputs.sign-release }}
+          WINDOWS_CODE_SIGN_KEY_VAULT_URI: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_URI || '' }}
+          WINDOWS_CODE_SIGN_CLIENT_ID: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_APPLICATION_ID || '' }}
+          WINDOWS_CODE_SIGN_CLIENT_SECRET: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CLIENT_SECRET || '' }}
+          WINDOWS_CODE_SIGN_CERT_NAME: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME || '' }}
+          WINDOWS_CODE_SIGN_TENANT_ID: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID || '' }}
+          WINDOWS_CODE_SIGN_TIMESTAMP_URL: ${{ inputs.sign-release && secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_TIMESTAMP_URL || '' }}
+        run: ./windows/build.ps1 -Test -Smoke -RechargeSmoke -LauncherSmoke -Package -Installer -Sign:($env:SIGN_RELEASE -eq 'true')
       - name: Verify installer and uninstaller in the disposable runner
+        env:
+          SIGN_RELEASE: ${{ inputs.sign-release }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -35,6 +72,9 @@ jobs:
           if (-not (Test-Path -LiteralPath $installed)) { throw 'Installed app is missing' }
           $source = (Get-FileHash windows/YConnect/bin/Release/net48/YConnect.exe).Hash
           if ((Get-FileHash -LiteralPath $installed).Hash -ne $source) { throw 'Installed executable differs from the tested build' }
+          if ($env:SIGN_RELEASE -eq 'true') {
+            ./windows/verify-release.ps1 -InstallDirectory $installDirectory
+          }
           $remove = Start-Process -FilePath (Join-Path $installDirectory 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru -WindowStyle Hidden
           if ($remove.ExitCode -ne 0 -or (Test-Path -LiteralPath $installed)) { throw 'Uninstall verification failed' }
       - name: Upload Windows release payload
@@ -50,5 +90,6 @@ jobs:
           name: YConnect-windows-x64
           path: |
             windows/artifacts/*.zip
-            windows/.test-output/**/results.txt
-            windows/.test-output/**/layout/*.png
+            windows/.test-output/**/*.txt
+            windows/.test-output/**/*.png
+          include-hidden-files: true

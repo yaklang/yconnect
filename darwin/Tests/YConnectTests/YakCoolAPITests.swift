@@ -73,7 +73,7 @@ final class YakCoolAPITests: XCTestCase {
         XCTAssertEqual(response.status, "ok")
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.url?.absoluteString, "https://unit-test.yakcool.com/api/health")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/0.2.0")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/\(BuildInfo.version)")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
         XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
     }
@@ -102,7 +102,7 @@ final class YakCoolAPITests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fake-chat-probe-key")
         XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"))
-        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/0.2.0")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "YConnect/\(BuildInfo.version)")
         let body = try requestJSONBody(request)
         XCTAssertEqual(body["model"] as? String, "fixture/chat-model")
         XCTAssertEqual(body["max_tokens"] as? Int, 8)

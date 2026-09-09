@@ -1,11 +1,9 @@
 [CmdletBinding()]
-param([switch]$Test,[switch]$Smoke,[switch]$RechargeSmoke,[switch]$LauncherSmoke,[switch]$VerifyLogin,[switch]$Package,[switch]$Installer,[switch]$Run,[switch]$NoProxy)
+param([switch]$Test,[switch]$Smoke,[switch]$RechargeSmoke,[switch]$LauncherSmoke,[switch]$VerifyLogin,[switch]$Package,[switch]$Installer,[switch]$Run,[switch]$NoProxy,[switch]$Sign)
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'YConnect\YConnect.csproj'
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION must be a stable semantic version' }
-$projectXml = [xml](Get-Content -LiteralPath $project -Raw)
-if ($projectXml.Project.PropertyGroup.Version -ne $version) { throw 'Windows project version differs from VERSION' }
 if ($Installer) { $Package = $true }
 $configuration = 'Release'
 dotnet build $project -c $configuration --verbosity minimal
@@ -34,7 +32,10 @@ function Invoke-NativeCheck([string]$Flag,[string]$Name) {
             throw "$Name timed out; see $checkOutput"
         }
     }
-    if ($checkProcess.ExitCode -ne 0) { throw "$Name failed; see $checkOutput" }
+    if ($checkProcess.ExitCode -ne 0) {
+        Get-ChildItem -LiteralPath $checkOutput -Filter '*results.txt' -File -ErrorAction SilentlyContinue | ForEach-Object { Get-Content -LiteralPath $_.FullName }
+        throw "$Name failed; see $checkOutput"
+    }
 }
 if ($Smoke) { Invoke-NativeCheck '--smoke' 'native-ui' }
 if ($RechargeSmoke) { Invoke-NativeCheck '--verify-recharge' 'recharge-native-ui' }
@@ -53,6 +54,11 @@ if ($LauncherSmoke) {
     dotnet build (Join-Path $PSScriptRoot 'YConnect.LauncherTests\YConnect.LauncherTests.csproj') -c $configuration --verbosity minimal
     if ($LASTEXITCODE -ne 0) { throw 'WPF launcher test build failed' }
     Invoke-LauncherCheck (Join-Path $binaryDirectory 'YConnect.Launcher.exe') 'interactive-launchers'
+}
+if ($Sign) {
+    if (-not $Package -and -not $Installer) { throw '-Sign requires -Package or -Installer' }
+    dotnet build $project -c $configuration --verbosity minimal -p:YConnectSignRelease=true
+    if ($LASTEXITCODE -ne 0) { throw 'Signed release build failed' }
 }
 if ($Package) {
     $portable = Join-Path $PSScriptRoot "artifacts\YConnect-$version-windows-x64-$stamp"
@@ -74,7 +80,13 @@ if ($Package) {
         $releaseDirectory = Join-Path $PSScriptRoot 'artifacts\release'
         [void][System.IO.Directory]::CreateDirectory($releaseDirectory)
         Copy-Item -LiteralPath $zip -Destination (Join-Path $releaseDirectory "YConnect-$version-windows-x64.zip")
-        & $compiler "/DAppVersion=$version" "/DPayloadDirectory=$portable" "/DReleaseDirectory=$releaseDirectory" (Join-Path $PSScriptRoot 'installer\YConnect.iss')
+        $compilerArguments = @("/DAppVersion=$version", "/DPayloadDirectory=$portable", "/DReleaseDirectory=$releaseDirectory")
+        if ($Sign) {
+            $signScript = Join-Path $PSScriptRoot 'azure-sign.ps1'
+            $signCommand = 'pwsh.exe -NoProfile -File $q' + $signScript + '$q -File $f'
+            $compilerArguments += @('/DSignRelease=1', ('/SYConnect=' + $signCommand))
+        }
+        & $compiler @compilerArguments (Join-Path $PSScriptRoot 'installer\YConnect.iss')
         if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed' }
     }
     if ($Smoke) {

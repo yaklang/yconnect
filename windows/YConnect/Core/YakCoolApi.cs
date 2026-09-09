@@ -87,7 +87,7 @@ namespace YConnect.Core
             {
                 cancel.CancelAfter(TimeSpan.FromSeconds(origin == Gateway ? 120 : 20));
                 request.Headers.TryAddWithoutValidation("Accept", "application/json");
-                request.Headers.TryAddWithoutValidation("User-Agent", "YConnect/0.2.0 (Windows; WPF)");
+                request.Headers.TryAddWithoutValidation("User-Agent", "YConnect/" + BuildInfo.Version + " (Windows; WPF)");
                 if (key != null) request.Headers.TryAddWithoutValidation(path == "/v1/messages" ? "x-api-key" : "Authorization", path == "/v1/messages" ? ValidateKey(key) : "Bearer " + ValidateKey(key));
                 if (path == "/v1/messages") request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
                 if (cookie != null) request.Headers.TryAddWithoutValidation("Cookie", "yakcool_user_session=" + ValidateCookie(cookie));

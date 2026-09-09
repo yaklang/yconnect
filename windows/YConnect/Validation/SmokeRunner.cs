@@ -153,6 +153,9 @@ namespace YConnect.Validation
             await Click(app.Manager, "sidebar-toggle"); Assert(app.Manager.SidebarCollapsed, "sidebar did not collapse");
             Assert(Find<Button>(app.Manager, "sidebar-account").IsVisible, "collapsed account footer disappeared"); Capture(app.Manager, "23-manager-collapsed.png");
             await Click(app.Manager, "sidebar-toggle");
+            // The pinned widget can overlap the manager heading on a small
+            // runner desktop. Clear our own overlay before real pointer input.
+            app.Widget.Hide(); app.Edge.CloseQuick(); app.Manager.Activate(); await Idle();
             var managerBounds = YConnect.Native.WindowsDesktop.Bounds(app.Manager);
             var heading = Find<TextBlock>(app.Manager, "manager-page-title");
             await NativeInput.Drag(app.Manager, heading, 34, 22);

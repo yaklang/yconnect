@@ -1,0 +1,7 @@
+<Project>
+  <!-- Sign helpers before their output is embedded in, or copied beside, the app. -->
+  <Target Name="SignReleaseExecutable" AfterTargets="Build"
+          Condition="'$(YConnectSignRelease)' == 'true' And ('$(MSBuildProjectName)' == 'YConnect' Or '$(MSBuildProjectName)' == 'Launcher' Or '$(MSBuildProjectName)' == 'CredentialReader')">
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)azure-sign.ps1&quot; -File &quot;$(TargetPath)&quot;" />
+  </Target>
+</Project>
