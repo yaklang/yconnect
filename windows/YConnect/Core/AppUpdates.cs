@@ -62,7 +62,8 @@ namespace YConnect.Core
         public AppUpdates(AppController app)
         {
             this.app = app; dispatcher = Application.Current.Dispatcher; Enabled = !app.Store.Environment.Development;
-            http = new HttpClient(new HttpClientHandler { UseCookies = false, UseDefaultCredentials = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(25) };
+            http = new HttpClient(new HttpClientHandler { UseCookies = false, UseDefaultCredentials = false, AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromSeconds(25), MaxResponseContentBufferSize = 524288 };
             timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             timer.Tick += async (s, e) => { timer.Interval = TimeSpan.FromHours(6); if (Automatic) await Check(); };
             if (!Enabled) Message = "开发与演示环境不检查或安装正式更新。";
@@ -77,12 +78,11 @@ namespace YConnect.Core
                 using (var request = new HttpRequestMessage(HttpMethod.Get, AppRelease.Base + "/latest.json"))
                 {
                     request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
-                    using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                    // Buffer within HttpClient so its timeout also covers a stalled response body.
+                    using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseContentRead))
                     {
                         response.EnsureSuccessStatusCode();
                         if (response.Content.Headers.ContentLength > 524288) throw new InvalidDataException("更新信息过大");
-                        // Buffering has an explicit upper bound, including chunked responses.
-                        await response.Content.LoadIntoBufferAsync(524288);
                         Release = AppRelease.Parse(await response.Content.ReadAsStringAsync(), BuildInfo.Version);
                     }
                 }
@@ -125,7 +125,12 @@ namespace YConnect.Core
             win_sparkle_set_shutdown_request_callback(onShutdown); win_sparkle_init(); initialized = true;
         }
         private void Post(Action action) { if (!disposed && !dispatcher.HasShutdownStarted) dispatcher.BeginInvoke(action); }
-        public void OpenDownloads() => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com/yaklang/yconnect/releases/latest") { UseShellExecute = true });
+        public void OpenDownloads()
+        {
+            var version = Release?.Version ?? BuildInfo.Version;
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppRelease.Base + "/" + version + "/YConnect-" + version + "-windows-x64-setup.exe") { UseShellExecute = true }); }
+            catch (Exception) { app.Store.SetError("无法打开浏览器，请前往 yakcool.com 下载客户端。"); }
+        }
         public void Dispose()
         {
             if (disposed) return; disposed = true; timer.Stop(); http.Dispose();

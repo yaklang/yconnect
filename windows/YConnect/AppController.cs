@@ -56,13 +56,18 @@ namespace YConnect
             Widget = new WidgetWindow(this); Edge = new EdgeDock(this);
             tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(), Text = "Y CONNECT · 连接你的 YAKCOOL", Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) ToggleWidget(); }; tray.DoubleClick += (s, e) => ShowManager("overview");
-            Updates.Changed += StoreChanged; Updates.Start(); Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
+            Updates.Changed += UpdatesChanged; Updates.Start(); Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
             refresh.Tick += async (s, e) => { if (!Store.Busy && Store.Authenticated) await Store.Run(Store.Refresh); }; refresh.Start();
             if (activation != null) activationWait = System.Threading.ThreadPool.RegisterWaitForSingleObject(activation, (s, t) => Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!Quitting) ShowWidget(); })), null, System.Threading.Timeout.Infinite, false);
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
             feedbackTimer.Tick += (s, e) => { feedbackTimer.Stop(); copiedId = null; Store.ClearMessage(feedbackMessage); Store.Notify(); };
             try { StartupPolicy.Initialize(Store.Environment.Development, Store.HadPreferencesFile && Store.LegacyStartupPreferences, Store.Preferences, () => StartupEnabled, WriteStartup, Store.SavePreferences); }
             catch (Exception e) { Store.SetError(e.Message); }
+        }
+        private void UpdatesChanged()
+        {
+            if (Quitting) return;
+            Widget.RefreshUpdates(); manager?.RefreshUpdates(); UpdateTray();
         }
         private void StoreChanged()
         {
@@ -273,6 +278,6 @@ namespace YConnect
             }
         }
         public void Quit() { Quitting = true; Launches.Changed -= StoreChanged; Launches.Dispose(); Dispose(); Application.Current.Shutdown(); }
-        public void Dispose() { Updates.Changed -= StoreChanged; Updates.Dispose(); refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; recharge?.Close(); (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
+        public void Dispose() { Updates.Changed -= UpdatesChanged; Updates.Dispose(); refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; recharge?.Close(); (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
     }
 }

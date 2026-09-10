@@ -20,6 +20,8 @@ namespace YConnect.Views
         private readonly Motion motion;
         private bool closing;
         private readonly ConnectionPanel connection;
+        private Border updateSlot;
+        private PasswordBox loginKeyInput;
         public bool KeyLoginMode { get; set; }
         public bool IsDragging { get; set; }
         public string ExpandedSection => connection.ExpandedSection;
@@ -38,9 +40,20 @@ namespace YConnect.Views
         public void Reveal() { var wasClosing = closing; closing = false; var wasVisible = IsVisible; Show(); if (!wasVisible || wasClosing) motion.Show(); }
         public new void Hide() { if (!IsVisible || closing) return; closing = true; motion.Hide(() => { base.Hide(); closing = false; }); }
         public void SetMaximumHeight(double height) { scroll.MaxHeight = Math.Max(200, height - 58); }
+        public void RefreshUpdates()
+        {
+            if (updateSlot == null) return;
+            var updates = controller.Updates;
+            updateSlot.Visibility = updates.Release == null ? Visibility.Collapsed : Visibility.Visible;
+            if (updates.Release == null) { updateSlot.Child = null; return; }
+            var button = Ui.SmallButton(updates.Installing ? "更新中…" : "下载并更新", "widget-update", updates.Install);
+            button.IsEnabled = !updates.Installing;
+            updateSlot.Child = Ui.Between(Ui.Text("新版本 " + updates.Release.Version, 11, "Accent", true), button);
+        }
         public void Render()
         {
             var store = controller.Store;
+            if (store.Authenticated || !KeyLoginMode) { loginKeyInput?.Clear(); loginKeyInput = null; }
             var subtitle = store.Authenticated ? store.DisplayName + (store.Mode == "account" ? " · YAKCOOL 账户" : " · API Key") : "让每一次连接，都刚刚好";
             var identity = Ui.Text(subtitle, 10, "Muted"); identity.MaxWidth = 175; identity.TextWrapping = TextWrapping.NoWrap; identity.TextTrimming = TextTrimming.CharacterEllipsis; identity.ToolTip = subtitle;
             var brand = Ui.Row(Ui.Logo(30), new Border { Width = 9 }, Ui.Stack(Ui.Text("Y CONNECT", 17, "Ink", true), identity));
@@ -48,7 +61,7 @@ namespace YConnect.Views
             var pin = Ui.IconButton("\uE718", store.Preferences.Pinned ? "取消固定" : "固定在桌面", "widget-pin", () => { store.Preferences.Pinned = !store.Preferences.Pinned; store.SavePreferences(); });
             pin.Background = store.Preferences.Pinned ? Ui.Brush("AccentSoft") : Brushes.Transparent;
             var content = Ui.Stack(Ui.Between(brand, Ui.Row(refresh, pin, Ui.IconButton("\uE711", "收起", "widget-close", Hide))), Ui.Gap(8));
-            if (controller.Updates.Release != null) { content.Children.Add(Ui.Between(Ui.Text("新版本 " + controller.Updates.Release.Version, 11, "Accent", true), Ui.SmallButton(controller.Updates.Installing ? "更新中…" : "下载并更新", "widget-update", controller.Updates.Install))); content.Children.Add(Ui.Gap(8)); }
+            updateSlot = new Border { Margin = new Thickness(0, 0, 0, 8) }; content.Children.Add(updateSlot); RefreshUpdates();
             if (store.Environment.Demo) { content.Children.Add(Ui.Between(Ui.Text("体验预览", 10, "Accent", true), Ui.Text("演示数据 · 不修改真实配置", 9, "Muted"))); content.Children.Add(Ui.Gap(8)); }
             if (store.Mode == "restoring") content.Children.Add(Ui.Notice("正在安全恢复你的连接…"));
             else if (!store.Authenticated) content.Children.Add(LoginContent());
@@ -112,6 +125,9 @@ namespace YConnect.Views
             if (KeyLoginMode)
             {
                 var input = Ui.Id(new PasswordBox { MaxLength = 512, MinHeight = 40 }, "login-key-input");
+                // Feedback and background refreshes must not erase an unfinished login.
+                if (loginKeyInput != null) { input.Password = loginKeyInput.Password; loginKeyInput.Clear(); }
+                loginKeyInput = input;
                 var paste = Ui.SmallButton("粘贴", "login-key-paste", () => { try { if (Clipboard.ContainsText()) input.Password = Clipboard.GetText(); input.Focus(); } catch { store.SetError("暂时无法读取剪贴板，请手动粘贴"); } }); paste.MinHeight = 40; paste.Margin = new Thickness(8, 0, 0, 0);
                 content.Children.Add(Ui.Text("业务 API Key", 11, "Muted", true)); content.Children.Add(Ui.Gap(8)); content.Children.Add(Ui.Between(input, paste)); content.Children.Add(Ui.Gap(8));
                 Func<System.Threading.Tasks.Task> connect = async () => { var value = input.Password; input.Clear(); await store.Run(() => store.LoginKey(value)); };

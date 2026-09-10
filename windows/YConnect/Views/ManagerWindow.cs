@@ -22,6 +22,7 @@ namespace YConnect.Views
         private readonly ScrollViewer body = new ScrollViewer();
         private readonly StackPanel top = Ui.Stack();
         private readonly StackPanel statusBar = Ui.Row();
+        private Border updateBadgeSlot, updateSettingsSlot;
         private readonly ConnectionPanel overviewConnection;
         private string section = "overview", search = "", protocolFilter = "all";
         private string launchDirectory, launchTerminal, probeModelId, probeProtocolId;
@@ -93,7 +94,7 @@ namespace YConnect.Views
                 ["checks"] = ("连接测试", "从服务到模型，轻松找到连接中的问题。"), ["settings"] = ("设置", "按照你的习惯，调整桌面连接体验。") };
             var name = names.ContainsKey(section) ? names[section] : names["overview"];
             statusBar.Children.Clear(); if (store.Environment.Demo) statusBar.Children.Add(Ui.Badge("演示数据", "Accent", "AccentSoft"));
-            if (controller.Updates.Release != null) statusBar.Children.Add(Ui.SmallButton(controller.Updates.Installing ? "更新中…" : "新版本", "manager-update", controller.Updates.Install, "Primary"));
+            updateBadgeSlot = new Border(); statusBar.Children.Add(updateBadgeSlot); updateSettingsSlot = null; RefreshUpdates();
             var sync = Ui.Text(store.Busy ? "正在检测…" : store.LastRefresh.HasValue ? "● 已同步 " + store.LastRefresh.Value.ToString("HH:mm") : "等待连接", 10, store.Authenticated ? "Green" : "Muted"); sync.Margin = new Thickness(12, 0, 0, 0); sync.VerticalAlignment = VerticalAlignment.Center; statusBar.Children.Add(sync);
             var globalRecharge = Ui.SmallButton("充值  ↗", "manager-recharge", controller.OpenRecharge, "Primary"); globalRecharge.Margin = new Thickness(12, 0, 0, 0); statusBar.Children.Add(globalRecharge);
             if (store.Mode == "account") { var redeemButton = Ui.SmallButton("兑换码", "manager-redeem", controller.OpenRedemption); redeemButton.Margin = new Thickness(8, 0, 0, 0); redeemButton.IsEnabled = !store.Busy; statusBar.Children.Add(redeemButton); }
@@ -372,10 +373,23 @@ namespace YConnect.Views
             page.Children.Add(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("网络连接", 16, "Ink", true), Ui.Gap(9), Ui.Text("扫码或同步遇到问题时，可以尝试应用直连。", 11, "Muted")), direct), 16)); page.Children.Add(Ui.Gap(14));
             var logout = Ui.AsyncButton("登出当前连接", "setting-signout", controller.SignOut); logout.IsEnabled = store.Authenticated;
             page.Children.Add(Ui.Card(Ui.Between(Ui.Stack(Ui.Text("账户与隐私", 16, "Ink", true), Ui.Gap(9), Ui.Text("凭证加密保存在本机，配置前自动备份。登出不会删除下游客户端配置。", 11, "Muted")), logout), 16)); page.Children.Add(Ui.Gap(12));
-            page.Children.Insert(0, UpdateSettings());
+            updateSettingsSlot = new Border { Child = UpdateSettings() };
+            page.Children.Insert(0, updateSettingsSlot);
             page.Children.Insert(1, Ui.Gap(14));
             var detail = Ui.Stack(Ui.Text("Y CONNECT " + BuildInfo.Version + " · Windows", 11, "Muted"), Ui.Gap(10), Ui.Text("本地数据", 11, "Muted", true), Ui.Gap(6), Ui.Selectable(store.Environment.DataRoot), Ui.Gap(12), Ui.Button("打开数据目录", "setting-open-data", controller.OpenData), Ui.Gap(12), Ui.Text(store.Environment.Development ? "当前为隔离预览，所有测试配置都写入专用目录，不接触真实客户端。会话使用 DPAPI，备份保留最近 20 份。" : "会话与备份使用 Windows DPAPI。下游凭证文件使用仅当前用户与 SYSTEM 可读的私有权限。最近 20 份备份可恢复。", 11, "Muted"));
             page.Children.Add(new Expander { Header = Ui.Text("版本、存储与安全详情", 11, "Muted"), Content = new Border { Child = detail, Padding = new Thickness(0, 16, 0, 0) } }); return page;
+        }
+        public void RefreshUpdates()
+        {
+            // Update only the update controls; leave form drafts and focus intact.
+            if (updateBadgeSlot != null)
+            {
+                var updates = controller.Updates;
+                var button = updates.Release == null ? null : Ui.SmallButton(updates.Installing ? "更新中…" : "新版本", "manager-update", updates.Install, "Primary");
+                if (button != null) button.IsEnabled = !updates.Installing;
+                updateBadgeSlot.Child = button;
+            }
+            if (updateSettingsSlot != null) updateSettingsSlot.Child = UpdateSettings();
         }
         private FrameworkElement UpdateSettings()
         {

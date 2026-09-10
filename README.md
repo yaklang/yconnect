@@ -42,4 +42,4 @@ Windows 使用 C# / WPF，需要 .NET SDK 和 Inno Setup（生成安装程序时
 ./windows/build.ps1 -Test -Package -Installer
 ```
 
-[开发与适配参考](docs/DEVELOPMENT.md) · [Windows 说明](windows/README.md) · [版本、签名与发布](docs/RELEASING.md)
+[开发与适配参考](docs/DEVELOPMENT.md) · [Windows 说明](windows/README.md) · [版本、签名与发布](docs/RELEASING.md) · [客户端更新](docs/UPDATES.md)

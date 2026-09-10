@@ -126,6 +126,11 @@ namespace YConnect.Validation
                 {
                     app.CopyText(DemoApi.Key, "validation-paste"); await Idle(); await Click(app.Widget, "login-key-paste");
                     Assert(Find<PasswordBox>(app.Widget, "login-key-input").Password == DemoApi.Key, "explicit key paste failed");
+                    var draftInput = Find<PasswordBox>(app.Widget, "login-key-input");
+                    app.Widget.RefreshUpdates(); app.Manager.RefreshUpdates();
+                    Assert(ReferenceEquals(draftInput, Find<PasswordBox>(app.Widget, "login-key-input")), "update check recreated the login form");
+                    app.Store.Notify(); await Idle();
+                    Assert(Find<PasswordBox>(app.Widget, "login-key-input").Password == DemoApi.Key, "background feedback erased login draft");
                     await Click(app.Widget, "login-key-connect"); await Idle();
                 }
                 finally { if (originalClipboard != null) Clipboard.SetDataObject(originalClipboard, true); else Clipboard.Clear(); }

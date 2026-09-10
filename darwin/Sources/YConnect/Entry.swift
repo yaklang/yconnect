@@ -124,7 +124,8 @@ enum YConnectMain {
             environment: environment,
             authenticated: !CommandLine.arguments.contains("--signed-out"),
             authenticationMode: CommandLine.arguments.contains("--api-key-mode") ? .apiKey : .account,
-            installedClientIDs: detectedClientIDsForPreview(environment: environment)
+            installedClientIDs: detectedClientIDsForPreview(environment: environment),
+            domesticModelsOnly: true
         )
         if let clientName = argument(after: "--client") {
             let requested = ClientID(rawValue: clientName)

@@ -150,7 +150,11 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func stop() { timer?.cancel(); timer = nil }
-    func openDownloads() { NSWorkspace.shared.open(URL(string: "https://github.com/yaklang/yconnect/releases/latest")!) }
+    func openDownloads() {
+        let version = release?.version ?? BuildInfo.version
+        let url = URL(string: "\(AppRelease.base)/\(version)/YConnect-\(version)-darwin-universal.dmg")!
+        if !NSWorkspace.shared.open(url) { reportError("无法打开浏览器，请前往 yakcool.com 下载客户端。") }
+    }
 }
 
 struct UpdateBadge: View {
