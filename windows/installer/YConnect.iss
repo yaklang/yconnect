@@ -30,6 +30,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
+CloseApplicationsFilter=YConnect.exe
 RestartApplications=no
 #ifdef SignRelease
 SignTool=YConnect
@@ -50,9 +51,15 @@ Name: "{group}\Y CONNECT"; Filename: "{app}\YConnect.exe"
 Name: "{autodesktop}\Y CONNECT"; Filename: "{app}\YConnect.exe"; Tasks: desktopicon
 
 [Run]
+Filename: "{app}\YConnect.exe"; Parameters: "--updated"; Flags: nowait skipifnotsilent; Check: IsClientUpdate
 Filename: "{app}\YConnect.exe"; Description: "Launch Y CONNECT"; Flags: nowait postinstall skipifsilent unchecked
 
 [Code]
+function IsClientUpdate(): Boolean;
+begin
+  Result := ExpandConstant('{param:YCONNECTUPDATE|0}') = '1';
+end;
+
 function InitializeSetup(): Boolean;
 var
   FrameworkRelease: Cardinal;

@@ -61,6 +61,9 @@ jobs:
       - name: Test
         run: swift test --package-path darwin -Xswiftc -warnings-as-errors
 
+      - name: Verify native updater rejects tampering and installs/relaunches an isolated app
+        run: python3 script/test-macos-updater.py
+
       - name: Render UI previews
         shell: bash
         run: |
@@ -122,7 +125,7 @@ jobs:
           codesign --verify --deep --strict "$app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect.dev"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$GITHUB_RUN_NUMBER"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$(python3 script/version.py --build-number)"
           mount_dir="$(mktemp -d)"
           hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
           trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
@@ -180,6 +183,9 @@ jobs:
           lipo "$app/Contents/MacOS/YConnect" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "io.yaklang.yconnect"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$(python3 script/version.py --build-number)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$app/Contents/Info.plist")" = "$(cat resources/updates/ed25519-public-key.txt)"
+          test -d "$app/Contents/Frameworks/Sparkle.framework"
           test -L "$mount_dir/Applications"
           if [[ "$SIGN_RELEASE" == true ]]; then
             codesign -d --verbose=4 "$app" 2> "$RUNNER_TEMP/release-signature.txt"

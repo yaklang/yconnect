@@ -73,6 +73,11 @@ BUILD_ARGS=(--package-path "$PACKAGE_ROOT" -c release "${SWIFT_ARCHS[@]}")
 swift build "${BUILD_ARGS[@]}"
 BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 cp "$BIN_PATH/YConnect" "$APP_BUNDLE/Contents/MacOS/YConnect"
+SPARKLE_FRAMEWORK="$PACKAGE_ROOT/.build/artifacts/darwin/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+test -d "$SPARKLE_FRAMEWORK"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+ditto "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+cp "$PACKAGE_ROOT/.build/artifacts/darwin/Sparkle/LICENSE" "$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
 
 BASE_PNG="$APP_OUTPUT_ROOT/YConnectAppIcon-1024.png"
 magick -background none "$ICON_SOURCE" -resize 1024x1024 "$BASE_PNG"
@@ -99,13 +104,7 @@ cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Y CONNECT" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_IDENTIFIER" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
-if [[ -n "${GITHUB_RUN_NUMBER:-}" ]]; then
-    BUILD_NUMBER="$GITHUB_RUN_NUMBER"
-elif BUILD_NUMBER="$(git -C "$PROJECT_ROOT" rev-list --count HEAD 2>/dev/null)"; then
-    [[ "$BUILD_NUMBER" -gt 0 ]] || BUILD_NUMBER=1
-else
-    BUILD_NUMBER=1
-fi
+BUILD_NUMBER="$(python3 "$SCRIPT_DIR/version.py" --set "$VERSION" --build-number)"
 [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
     echo "Invalid build number: $BUILD_NUMBER" >&2
     exit 1

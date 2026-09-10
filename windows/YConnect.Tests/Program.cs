@@ -35,6 +35,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--verify-updater-native") return UpdateChecks.Native(args[1], args[2], bool.Parse(args[3]));
         if (args.FirstOrDefault() == "--interactive-fixture") return LauncherChecks.InteractiveFixture(args[1]);
         if (args.FirstOrDefault() == "--launch-fixture")
         {
@@ -50,6 +51,20 @@ internal static class Program
     }
     private static async Task Run()
     {
+        Test("Update catalog compares numeric stable versions and rejects unsafe links", () =>
+        {
+            var version = "0.10.0"; var name = "YConnect-" + version + "-windows-x64-setup.exe";
+            var item = new JObject { ["schema_version"] = 1, ["product"] = "yconnect", ["version"] = version,
+                ["release_notes"] = "https://github.com/yaklang/yconnect/releases/tag/v" + version,
+                ["assets"] = new JArray(new JObject { ["platform"] = "windows", ["architecture"] = "amd64", ["kind"] = "setup", ["filename"] = name,
+                    ["url"] = AppRelease.Base + "/" + version + "/" + name, ["sha256"] = new string('a', 64), ["size"] = 100 }) };
+            Assert(AppRelease.Parse(item.ToString(), "0.9.9") != null, "Numeric version order");
+            Assert(AppRelease.Parse(item.ToString(), "0.10.0") == null && AppRelease.Parse(item.ToString(), "1.0.0") == null, "Equal/older version advertised");
+            foreach (var bad in new[] { "01.2.3", "1.2", "1.2.3-beta", "-1.2.3", "1.2.3.4" }) Throws(() => AppRelease.StableVersion(bad));
+            item["assets"][0]["url"] = "https://untrusted.invalid/setup.exe";
+            Throws(() => AppRelease.Parse(item.ToString(), "0.5.0"));
+        });
+
         Test("Launcher plans preserve existing configurations and isolate each key", () =>
         {
             var env = Env("launcher 空格 & ' %"); Directory.CreateDirectory(env.ClientHome);

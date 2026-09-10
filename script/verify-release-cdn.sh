@@ -88,6 +88,9 @@ download_exact "$PUBLIC_BASE_URL/$VERSION/manifest.json" "$MANIFEST" "version ma
 download_exact "$PUBLIC_BASE_URL/$VERSION/version.txt" "$DIST_DIR/version.txt" "version version.txt"
 download_exact "$PUBLIC_BASE_URL/$VERSION/SHA256SUMS.txt" "$DIST_DIR/SHA256SUMS.txt" "SHA256SUMS.txt"
 download_exact "$PUBLIC_BASE_URL/$VERSION/SHA256SUMS" "$DIST_DIR/SHA256SUMS" "SHA256SUMS"
+for name in appcast-macos.xml appcast-windows.xml; do
+  if [[ -f "$DIST_DIR/$name" ]]; then download_exact "$PUBLIC_BASE_URL/$VERSION/$name" "$DIST_DIR/$name" "$name"; fi
+done
 
 while IFS=$'\t' read -r filename expected_hash expected_size; do
   local_file="$DIST_DIR/$filename"
@@ -102,6 +105,9 @@ while IFS=$'\t' read -r filename expected_hash expected_size; do
 done < <(jq -r '.assets[] | [.filename, .sha256, (.size | tostring)] | @tsv' "$MANIFEST")
 
 if [[ "${CDN_VERIFY_INDEXES:-1}" == 1 ]]; then
+for name in appcast-macos.xml appcast-windows.xml; do
+  if [[ -f "$INDEX_DIR/$name" ]]; then download_raw_exact "$PUBLIC_BASE_URL/$name" "$INDEX_DIR/$name" "$name"; fi
+done
 download_exact "$PUBLIC_BASE_URL/version.txt" "$INDEX_DIR/version.txt" "version.txt"
 download_raw_exact "$PUBLIC_BASE_URL/latest.json" "$INDEX_DIR/latest.json" "latest.json"
 download_exact "$PUBLIC_BASE_URL/latest.txt" "$INDEX_DIR/latest.txt" "latest.txt"

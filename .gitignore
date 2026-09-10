@@ -25,6 +25,7 @@ windows/artifacts/
 windows/.test-output/
 windows/**/bin/
 windows/**/obj/
+windows/.dependencies/
 windows/Assets/*.ico
 !windows/Assets/yconnect.ico
 !windows/Assets/yconnect-tray.ico

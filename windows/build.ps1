@@ -64,12 +64,14 @@ if ($Package) {
     $portable = Join-Path $PSScriptRoot "artifacts\YConnect-$version-windows-x64-$stamp"
     [void][System.IO.Directory]::CreateDirectory($portable)
     # No framework, browser runtime, PDBs, tests or companion repositories.
-    $files = @('YConnect.exe','YConnect.exe.config','YConnect.Launcher.exe','YConnect.Launcher.exe.config','Newtonsoft.Json.dll','QRCoder.dll','Tomlyn.dll','YamlDotNet.dll','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','WebView2Loader.dll')
+    $files = @('WinSparkle.dll','YConnect.exe','YConnect.exe.config','YConnect.Launcher.exe','YConnect.Launcher.exe.config','Newtonsoft.Json.dll','QRCoder.dll','Tomlyn.dll','YamlDotNet.dll','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','WebView2Loader.dll')
     foreach ($file in $files) { Copy-Item -LiteralPath (Join-Path $binaryDirectory $file) -Destination $portable }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $portable
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'UX.md') -Destination $portable
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PORTING.md') -Destination $portable
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD-PARTY-NOTICES.md') -Destination $portable
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".dependencies\WinSparkle-0.9.4\COPYING") -Destination (Join-Path $portable "WinSparkle-LICENSE.txt")
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".dependencies\WinSparkle-0.9.4\COPYING.expat") -Destination (Join-Path $portable "WinSparkle-Expat-LICENSE.txt")
     $zip = "$portable.zip"
     Compress-Archive -LiteralPath $portable -DestinationPath $zip
     Write-Host "Portable app: $portable"

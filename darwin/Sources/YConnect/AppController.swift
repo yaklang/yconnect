@@ -45,6 +45,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let environment: AppEnvironment
     let store: YConnectStore
     let launchAtLogin: LaunchAtLoginManager
+    let updates: AppUpdates
     private let diagnostics: StartupDiagnostics?
 
     private let widgetPresentation = WidgetPresentationState()
@@ -74,12 +75,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     init(environment: AppEnvironment = .current(), store: YConnectStore? = nil, diagnostics: StartupDiagnostics? = nil) {
         self.diagnostics = diagnostics
         self.environment = environment
+        updates = AppUpdates(enabled: !environment.isDevelopment && Bundle.main.bundleURL.pathExtension == "app")
         self.store = store ?? YConnectStore(environment: environment)
         launchAtLogin = LaunchAtLoginManager(
             packagedApplication: Bundle.main.bundleURL.pathExtension.lowercased() == "app"
                 && !environment.isDevelopment
         )
         super.init()
+        updates.reportError = { [weak self] message in self?.store.errorMessage = message }
+        updates.canInstall = { [weak self] in self?.store.isBusy == false && self?.managerWindow?.attachedSheet == nil }
         diagnostics?.record(.controllerReady)
         if self.store.startupWarning != nil { diagnostics?.record(.clientRegistryUnavailable) }
         if diagnostics?.previousInterruptedStage != nil {
@@ -127,14 +131,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Smoke runs validate window behavior with an unauthenticated fixture.
         // Avoid an interactive Keychain unlock from blocking their timers.
         if !isSmokeRun {
+            updates.start()
             Task { await store.restoreSession() }
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { diagnostics?.record(.cleanExit) }
+    func applicationWillTerminate(_ notification: Notification) { updates.stop(); diagnostics?.record(.cleanExit) }
 
     private func reportStartupWarning(_ message: String) {
         store.startupWarning = [store.startupWarning, message].compactMap { $0 }.joined(separator: "\n")
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if updates.installing && (store.isBusy || managerWindow?.attachedSheet != nil) {
+            store.errorMessage = "请先完成当前操作，再点击安装更新。"
+            return .terminateCancel
+        }
+        return .terminateNow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -228,6 +241,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         let show = menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "")
         show.target = self
+        menu.addItem(withTitle: updates.release == nil ? "检查更新…" : "新版本 \(updates.release!.version)", action: #selector(checkUpdatesAction), keyEquivalent: "").target = self
         let diagnosticItem = menu.addItem(withTitle: "打开启动诊断文件夹", action: #selector(openDiagnostics), keyEquivalent: "")
         diagnosticItem.target = self
         let manager = menu.addItem(withTitle: "打开 Y CONNECT", action: #selector(showManagerAction), keyEquivalent: ",")
@@ -297,10 +311,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleEdgeDock() { edgeDock.toggleEnabled() }
     @objc private func quit() { NSApp.terminate(nil) }
 
+    @objc private func checkUpdatesAction() {
+        showManager(section: .settings)
+        Task { await updates.check() }
+    }
+
     private func configureMainMenu() {
         let mainMenu = NSMenu(title: "Y CONNECT")
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Y CONNECT")
+        applicationMenu.addItem(withTitle: "检查更新…", action: #selector(checkUpdatesAction), keyEquivalent: "").target = self
         applicationMenu.addItem(withTitle: "关于 Y CONNECT", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         applicationMenu.addItem(.separator())
         let quitItem = applicationMenu.addItem(withTitle: "退出 Y CONNECT", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -395,6 +415,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         let hostingController = NSHostingController(rootView: WidgetView(
+            updates: updates,
             store: store,
             presentation: widgetPresentation,
             beginAccountLogin: { [weak self] in self?.beginAccountLogin() },
@@ -478,6 +499,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentViewController = NSHostingController(rootView: ManagerView(
+            updates: updates,
             store: store,
             navigation: managerNavigation,
             launchAtLogin: launchAtLogin,

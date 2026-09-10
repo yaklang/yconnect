@@ -32,6 +32,9 @@ for platform, arch, kind, suffix in [
 manifest = dict(schema_version=1, product='yconnect', version=version,
                 released_at=subprocess.check_output(['git', '-C', str(root), 'show', '-s', '--format=%cI', 'HEAD'], text=True).strip(),
                 release_notes=f'https://github.com/yaklang/yconnect/releases/tag/v{version}', assets=assets)
+notes = (root / 'docs' / 'releases' / f'v{version}.md').read_text()
+manifest['release_notes_text'] = notes.split('## 下载')[0].strip()
+manifest['build_number'] = int(subprocess.check_output([sys.executable, str(root / 'script/version.py'), '--build-number'], text=True))
 (dist / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
 for name in ['SHA256SUMS', 'SHA256SUMS.txt']:
     (dist / name).write_text(''.join(checksums))

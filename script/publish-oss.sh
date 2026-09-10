@@ -34,7 +34,9 @@ done
 
 # Verify downloads before moving the public version pointers.
 CDN_VERIFY_INDEXES=0 bash script/verify-release-cdn.sh "$VERSION" "$DIST_DIR" "$INDEX_DIR"
-for name in releases.json latest.json latest.txt latest-version.txt version.txt; do
+# Publish native feeds before advertising the version to the in-app badge.
+for name in appcast-macos.xml appcast-windows.xml releases.json latest.json latest.txt latest-version.txt version.txt; do
+    [[ -f "$INDEX_DIR/$name" ]] || continue
     ossutil cp -f "$INDEX_DIR/$name" "oss://$OSS_BUCKET/yconnect/$name" \
       --meta 'Content-Type:application/octet-stream#Cache-Control:no-cache,no-transform' \
       -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"

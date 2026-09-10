@@ -32,6 +32,7 @@ namespace YConnect
                 if (e.Args.Contains("--no-proxy")) store.SavePreferences();
                 Controller = new AppController(store, activation);
                 if (demo) await store.LoginAccount("demo-public-session-only", false); else await store.RestoreSession();
+                if (e.Args.Contains("--updated")) store.SetMessage("已更新至 Y CONNECT " + BuildInfo.Version + "，欢迎回来。");
                 Controller.PositionAll();
                 if (!e.Args.Contains("--background")) Controller.ShowWidget();
                 if (e.Args.Contains("--manager")) Controller.ShowManager("overview");

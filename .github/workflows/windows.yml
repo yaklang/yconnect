@@ -77,6 +77,12 @@ jobs:
           }
           $remove = Start-Process -FilePath (Join-Path $installDirectory 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru -WindowStyle Hidden
           if ($remove.ExitCode -ne 0 -or (Test-Path -LiteralPath $installed)) { throw 'Uninstall verification failed' }
+      - name: Verify native updater accepts signed downloads and rejects tampering
+        shell: pwsh
+        run: |
+          $env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
+          python script/test-windows-updater.py windows/YConnect.Tests/bin/Release/net48/YConnect.Tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native update signature verification failed' }
       - name: Upload Windows release payload
         uses: actions/upload-artifact@v4
         with:

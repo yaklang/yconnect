@@ -18,6 +18,7 @@ namespace YConnect
     public sealed class AppController : IDisposable
     {
         public YConnectStore Store { get; }
+        public AppUpdates Updates { get; }
         public ClientLaunches Launches { get; } = new ClientLaunches();
         public WidgetWindow Widget { get; }
         private ManagerWindow manager;
@@ -51,11 +52,11 @@ namespace YConnect
         private const string StartupKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         public AppController(YConnectStore store, System.Threading.EventWaitHandle activation = null)
         {
-            Store = store; Ui.SetTheme(Store.Preferences.Theme);
+            Store = store; Ui.SetTheme(Store.Preferences.Theme); Updates = new AppUpdates(this);
             Widget = new WidgetWindow(this); Edge = new EdgeDock(this);
             tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(), Text = "Y CONNECT · 连接你的 YAKCOOL", Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == Forms.MouseButtons.Left) ToggleWidget(); }; tray.DoubleClick += (s, e) => ShowManager("overview");
-            Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
+            Updates.Changed += StoreChanged; Updates.Start(); Store.Changed += StoreChanged; Launches.Changed += StoreChanged; UpdateTray();
             refresh.Tick += async (s, e) => { if (!Store.Busy && Store.Authenticated) await Store.Run(Store.Refresh); }; refresh.Start();
             if (activation != null) activationWait = System.Threading.ThreadPool.RegisterWaitForSingleObject(activation, (s, t) => Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!Quitting) ShowWidget(); })), null, System.Threading.Timeout.Infinite, false);
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
@@ -65,6 +66,7 @@ namespace YConnect
         }
         private void StoreChanged()
         {
+            Updates.RefreshShutdownState();
             if (Quitting || renderQueued) return; renderQueued = true;
             Application.Current.Dispatcher.BeginInvoke(new Action(() => { renderQueued = false; Widget.Render(); manager?.Render(); Edge.Refresh(); UpdateTray(); if (!string.IsNullOrEmpty(Store.Message) && feedbackMessage != Store.Message) { feedbackMessage = Store.Message; feedbackTimer.Stop(); feedbackTimer.Start(); } }), DispatcherPriority.Background);
         }
@@ -114,13 +116,13 @@ namespace YConnect
         public Task LoginForRecharge() { resumeRechargeAfterLogin = true; return LoginAccount(); }
         public bool? ShowDialog(Window dialog)
         {
-            ModalOpen = true;
+            ModalOpen = true; Updates.RefreshShutdownState();
             try
             {
                 if (DialogOpenedForValidation != null) dialog.ContentRendered += (s, e) => DialogOpenedForValidation(dialog);
                 return dialog.ShowDialog();
             }
-            finally { ModalOpen = false; }
+            finally { ModalOpen = false; Updates.RefreshShutdownState(); }
         }
         public bool Confirm(string title, string description, string action, bool danger = false)
         {
@@ -255,6 +257,7 @@ namespace YConnect
             var status = BalancePresentation.From(Store, Store.Preferences.PeekPercentageOnly).Value; tray.Text = "Y CONNECT · " + status;
             var old = tray.ContextMenuStrip; var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("打开小组件", null, (s, e) => ShowWidget()); menu.Items.Add("打开管理中心", null, (s, e) => ShowManager("overview"));
+            menu.Items.Add(Updates.Release == null ? "检查更新…" : "新版本 " + Updates.Release.Version, null, async (s, e) => { ShowManager("settings"); await Updates.Check(); });
             menu.Items.Add("充值账户余额", null, (s, e) => OpenRecharge());
             var copy = menu.Items.Add("复制当前 API Key", null, (s, e) => CopyKey()); copy.Enabled = !string.IsNullOrEmpty(Store.CurrentKey); menu.Items.Add(new Forms.ToolStripSeparator());
             var visible = new Forms.ToolStripMenuItem("显示屏幕边缘入口") { Checked = Store.Preferences.EdgeEnabled }; visible.Click += (s, e) => { Store.Preferences.EdgeEnabled = !Store.Preferences.EdgeEnabled; Store.SavePreferences(); PositionAll(); }; menu.Items.Add(visible);
@@ -270,6 +273,6 @@ namespace YConnect
             }
         }
         public void Quit() { Quitting = true; Launches.Changed -= StoreChanged; Launches.Dispose(); Dispose(); Application.Current.Shutdown(); }
-        public void Dispose() { refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; recharge?.Close(); (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
+        public void Dispose() { Updates.Changed -= StoreChanged; Updates.Dispose(); refresh.Stop(); feedbackTimer.Stop(); Edge.Stop(); activationWait?.Unregister(null); tray.Visible = false; tray.Dispose(); SystemEvents.DisplaySettingsChanged -= DisplayChanged; Store.Changed -= StoreChanged; recharge?.Close(); (Store.Api as IDisposable)?.Dispose(); login?.Close(); }
     }
 }

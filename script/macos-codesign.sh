@@ -31,6 +31,17 @@ security import "$WORK_DIR/certificate.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICAT
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
 IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -v team="($APPLE_TEAM_ID)" '/Developer ID Application:/ && index($0, team) {print $2; exit}')"
 [[ -n "$IDENTITY" ]] || { echo "No Developer ID Application identity for the configured team" >&2; exit 1; }
+FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$FRAMEWORK" ]]; then
+    # Sign nested code inside out, preserving upstream helper entitlements.
+    for code in "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" \
+                "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc" \
+                "$FRAMEWORK/Versions/B/Autoupdate" \
+                "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK"; do
+        test -e "$code"
+        codesign --force --options runtime --timestamp --preserve-metadata=entitlements --keychain "$KEYCHAIN" --sign "$IDENTITY" "$code"
+    done
+fi
 codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$IDENTITY" "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 codesign -d --verbose=4 "$APP_PATH" 2> "$WORK_DIR/signature.txt"

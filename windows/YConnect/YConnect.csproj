@@ -18,6 +18,8 @@
     <ApplicationIcon>..\Assets\yconnect.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\..\resources\updates\ed25519-public-key.txt" LogicalName="YConnect.UpdatePublicKey" />
+    <Content Include="..\.dependencies\WinSparkle-0.9.4\x64\WinSparkle.dll" Link="WinSparkle.dll" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="..\Assets\yconnect-tray.ico" LogicalName="YConnect.Tray.ico" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Security" />
@@ -38,5 +40,8 @@
   </Target>
   <Target Name="GenerateNativeIcon" BeforeTargets="PrepareForBuild" Condition="!Exists('..\Assets\yconnect.ico') Or !Exists('..\Assets\yconnect-tray.ico')">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\generate-icon.ps1&quot;" />
+  </Target>
+  <Target Name="FetchUpdateRuntime" BeforeTargets="PrepareForBuild">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\fetch-winsparkle.ps1&quot;" />
   </Target>
 </Project>

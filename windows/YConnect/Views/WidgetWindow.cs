@@ -48,6 +48,7 @@ namespace YConnect.Views
             var pin = Ui.IconButton("\uE718", store.Preferences.Pinned ? "取消固定" : "固定在桌面", "widget-pin", () => { store.Preferences.Pinned = !store.Preferences.Pinned; store.SavePreferences(); });
             pin.Background = store.Preferences.Pinned ? Ui.Brush("AccentSoft") : Brushes.Transparent;
             var content = Ui.Stack(Ui.Between(brand, Ui.Row(refresh, pin, Ui.IconButton("\uE711", "收起", "widget-close", Hide))), Ui.Gap(8));
+            if (controller.Updates.Release != null) { content.Children.Add(Ui.Between(Ui.Text("新版本 " + controller.Updates.Release.Version, 11, "Accent", true), Ui.SmallButton(controller.Updates.Installing ? "更新中…" : "下载并更新", "widget-update", controller.Updates.Install))); content.Children.Add(Ui.Gap(8)); }
             if (store.Environment.Demo) { content.Children.Add(Ui.Between(Ui.Text("体验预览", 10, "Accent", true), Ui.Text("演示数据 · 不修改真实配置", 9, "Muted"))); content.Children.Add(Ui.Gap(8)); }
             if (store.Mode == "restoring") content.Children.Add(Ui.Notice("正在安全恢复你的连接…"));
             else if (!store.Authenticated) content.Children.Add(LoginContent());

@@ -33,6 +33,7 @@ namespace YConnect.Core
     }
     public sealed class Preferences
     {
+        public bool CheckUpdates { get; set; } = true;
         public bool EdgeEnabled { get; set; } = true;
         public bool OnLeft { get; set; }
         public double YPercent { get; set; } = 58;

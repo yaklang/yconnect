@@ -53,8 +53,29 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_ACCOUNT_EMAIL: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-  publish:
+  prepare-updates:
     needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Generate manifest and signed update feeds
+        env:
+          YCONNECT_UPDATE_PRIVATE_KEY: ${{ secrets.YCONNECT_UPDATE_PRIVATE_KEY }}
+        run: |
+          python3 script/prepare-release-assets.py release
+          python3 script/sign-appcasts.py release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-release
+          path: release/*
+          if-no-files-found: error
+  publish:
+    needs: prepare-updates
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -66,11 +87,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          name: prepared-release
           path: release
-          merge-multiple: true
-      - name: Create manifest and checksums
-        run: python3 script/prepare-release-assets.py release
       - name: Install official OSS client
         env:
           GOBIN: ${{ runner.temp }}/bin
@@ -99,3 +117,4 @@ jobs:
             release/SHA256SUMS*
             release-index/*.json
             release-index/*.txt
+            release-index/*.xml

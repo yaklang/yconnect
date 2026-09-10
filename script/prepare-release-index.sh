@@ -58,6 +58,9 @@ jq --slurpfile release "$MANIFEST" --arg version "$VERSION" '
 ' "$OUT_DIR/releases.previous.json" > "$OUT_DIR/releases.json"
 
 cp "$MANIFEST" "$OUT_DIR/latest.json"
+for name in appcast-macos.xml appcast-windows.xml; do
+  if [[ -f "$(dirname "$MANIFEST")/$name" ]]; then cp "$(dirname "$MANIFEST")/$name" "$OUT_DIR/$name"; fi
+done
 printf '%s\n' "$VERSION" > "$OUT_DIR/version.txt"
 printf '%s\n' "$VERSION" > "$OUT_DIR/latest.txt"
 printf '%s\n' "$VERSION" > "$OUT_DIR/latest-version.txt"

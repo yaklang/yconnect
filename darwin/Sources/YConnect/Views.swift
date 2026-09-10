@@ -241,6 +241,7 @@ struct StartupWarningView: View {
 }
 
 struct WidgetView: View {
+    @ObservedObject var updates: AppUpdates = .preview
     @ObservedObject var store: YConnectStore
     @ObservedObject var presentation: WidgetPresentationState
     let beginAccountLogin: () -> Void
@@ -304,6 +305,7 @@ struct WidgetView: View {
                     .lineLimit(1)
             }
             Spacer()
+            UpdateBadge(updates: updates)
             if store.isAuthenticated {
                 Button { Task { await store.refresh() } } label: {
                     Image(systemName: "arrow.clockwise")
@@ -1157,6 +1159,7 @@ struct WidgetView: View {
 }
 
 struct ManagerView: View {
+    @ObservedObject var updates: AppUpdates = .preview
     @ObservedObject var store: YConnectStore
     @ObservedObject var navigation: ManagerNavigation
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
@@ -1182,6 +1185,7 @@ struct ManagerView: View {
                     BrandMark().fill(Brand.accent).frame(width: 28, height: 28)
                     Text("Y CONNECT").font(.system(size: 15, weight: .bold))
                     Spacer(minLength: 0)
+                    UpdateBadge(updates: updates)
                 }.padding(.horizontal, 16).padding(.vertical, 13)
                     .background(Brand.widgetSurfaceAlt)
                 List(selection: $navigation.selection) {
@@ -1749,6 +1753,7 @@ struct ManagerView: View {
 
     private var settings: some View {
         VStack(alignment: .leading, spacing: 16) {
+            UpdateSettings(updates: updates)
             GroupBox("常驻体验") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("显示屏幕边缘小组件", isOn: Binding(
