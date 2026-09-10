@@ -1098,7 +1098,8 @@ final class YConnectStore: ObservableObject {
         authenticationMode: AuthenticationMode = .account,
         includeAPIKeys: Bool = true,
         installedClientIDs: Set<ClientID>? = nil,
-        operationMessage: String? = nil
+        operationMessage: String? = nil,
+        domesticModelsOnly: Bool = false
     ) -> YConnectStore {
         // Re-root even an accidentally supplied production environment. This
         // factory is used by render previews and must never share client files,
@@ -1194,6 +1195,11 @@ final class YConnectStore: ObservableObject {
             store.businessKeyModels = []
         }
         store.selectedModelID = "gpt-5"
+        if domesticModelsOnly {
+            store.accountModels = [ModelRecord(id: 1, modelID: "deepseek-v4.1-flash", displayName: "DeepSeek V4.1 Flash", provider: "DeepSeek", summary: "", capabilityTags: [], contextWindow: 200_000, recommendedScenarios: "")]
+            store.businessKeyModels = [BusinessKeyModel(id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", protocols: ["chat_completions", "responses", "anthropic_messages"])]
+            store.selectedModelID = "deepseek-v4.1-flash"
+        }
         store.lastRefreshAt = Date()
         store.operationMessage = operationMessage
         if authenticationMode == .apiKey {

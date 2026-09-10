@@ -3,7 +3,7 @@
 `VERSION` 是版本来源。Windows 各项目直接读取它；macOS 版本常量、Info.plist、根目录 `version.txt` 由以下命令同步。应用版本显示与 User-Agent 使用平台版本信息。
 
 ```sh
-python3 script/version.py --set 0.4.0
+python3 script/version.py --set 0.5.0
 python3 script/version.py
 python3 -m unittest discover -s script/tests -v
 ```
@@ -27,6 +27,7 @@ GitHub Actions Secrets：
 | `AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME` | 签名证书名 |
 | `AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID` | Azure 租户 ID |
 | `AZURE_YAK_CODE_SIGN_KEY_VAULT_TIMESTAMP_URL` | 可选时间戳服务，默认 DigiCert |
+| `YCONNECT_UPDATE_PRIVATE_KEY` | Ed25519 更新签名私钥，PEM 格式；公钥固定在客户端中 |
 | `OSS_KEY_ID` / `OSS_KEY_SECRET` | OSS 发布凭据 |
 
 可使用共享给仓库的组织 Secrets。正式发布缺少必需凭据或验签失败会停止。普通分支和 PR 的构建不使用签名凭据。
@@ -43,4 +44,4 @@ GitHub Actions Secrets：
 
 发布器从 OSS 读取历史索引，拒绝版本倒退或覆盖不同内容的既有版本文件。公证时间戳会使重新构建的产物产生不同哈希；已有版本目录时应复用已验证产物恢复发布，或修复后递增版本，不能直接覆盖。
 
-公共入口：`https://aliyun-oss.yaklang.com/yconnect/`。这些文件提供下载与版本查询元数据；当前客户端不执行后台自动替换安装。
+公共入口：`https://aliyun-oss.yaklang.com/yconnect/`。这些文件提供下载与版本查询元数据；0.5.0 起支持用户点击触发的应用内更新，后台只进行版本检查。

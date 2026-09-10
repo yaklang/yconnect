@@ -52,6 +52,13 @@ enum UpdateError: LocalizedError {
 @MainActor
 final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let preview = AppUpdates(enabled: false)
+    static func availablePreview() -> AppUpdates {
+        let updates = AppUpdates(enabled: false)
+        updates.release = AppRelease(schema_version: 1, product: "yconnect", version: "0.6.0",
+            release_notes: "", release_notes_text: "更新状态演示：优化连接体验，完善异常提示。", assets: [])
+        updates.message = "这是界面演示，不会下载或安装。正式版点击后会显示下载进度和安装步骤。"
+        return updates
+    }
     @Published private(set) var release: AppRelease?
     @Published private(set) var checking = false
     @Published private(set) var installing = false

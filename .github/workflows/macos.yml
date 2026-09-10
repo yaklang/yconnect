@@ -42,6 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select OpenSSL 3 for Ed25519 update verification
+        run: |
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          "$(brew --prefix openssl@3)/bin/openssl" version
+
       - name: Repository hygiene
         shell: bash
         run: |

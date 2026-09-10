@@ -83,7 +83,8 @@ enum YConnectMain {
             installedClientIDs: installedClientIDs,
             operationMessage: CommandLine.arguments.contains("--with-operation-message")
                 ? "“Y CONNECT-4”已删除"
-                : nil
+                : nil,
+            domesticModelsOnly: true
         )
         if CommandLine.arguments.contains("--startup-warning") {
             store.startupWarning = "客户端适配暂时不可用，账户与小组件仍可使用。请在设置中打开诊断文件夹，将诊断文件提供给支持人员。"
@@ -95,6 +96,7 @@ enum YConnectMain {
         presentation.showsConnectionURLs = CommandLine.arguments.contains("--expanded-urls")
         presentation.showsModels = CommandLine.arguments.contains("--expanded-models")
         let view = WidgetView(
+            updates: CommandLine.arguments.contains("--update-available") ? .availablePreview() : .preview,
             store: store,
             presentation: presentation,
             beginAccountLogin: {}, openManager: { _ in }, openAPIKeyCreation: {}, closeWidget: {}
@@ -138,6 +140,7 @@ enum YConnectMain {
         }
         let launch = LaunchAtLoginManager(backend: PreviewLaunchAtLoginBackend(), packagedApplication: true)
         let view = ManagerView(
+            updates: CommandLine.arguments.contains("--update-available") ? .availablePreview() : .preview,
             store: store, navigation: navigation, launchAtLogin: launch,
             beginAccountLogin: {}, setEdgeDockEnabled: { _ in }
         )

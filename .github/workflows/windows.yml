@@ -83,6 +83,9 @@ jobs:
           $env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
           python script/test-windows-updater.py windows/YConnect.Tests/bin/Release/net48/YConnect.Tests.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native update signature verification failed' }
+      - name: Verify upgrade from published 0.4.0 and automatic relaunch
+        shell: pwsh
+        run: ./windows/verify-upgrade.ps1
       - name: Upload Windows release payload
         uses: actions/upload-artifact@v4
         with:

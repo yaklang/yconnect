@@ -6,10 +6,10 @@
 
 | 平台 | 要求 | 安装包 |
 | --- | --- | --- |
-| macOS | macOS 14+，Apple Silicon / Intel | [通用 DMG](https://aliyun-oss.yaklang.com/yconnect/0.4.0/YConnect-0.4.0-darwin-universal.dmg) |
-| Windows | Windows 10/11 x64，.NET Framework 4.8 | [安装程序](https://aliyun-oss.yaklang.com/yconnect/0.4.0/YConnect-0.4.0-windows-x64-setup.exe) · [便携 ZIP](https://aliyun-oss.yaklang.com/yconnect/0.4.0/YConnect-0.4.0-windows-x64.zip) |
+| macOS | macOS 14+，Apple Silicon / Intel | [通用 DMG](https://aliyun-oss.yaklang.com/yconnect/0.5.0/YConnect-0.5.0-darwin-universal.dmg) |
+| Windows | Windows 10/11 x64，.NET Framework 4.8 | [安装程序](https://aliyun-oss.yaklang.com/yconnect/0.5.0/YConnect-0.5.0-windows-x64-setup.exe) · [便携 ZIP](https://aliyun-oss.yaklang.com/yconnect/0.5.0/YConnect-0.5.0-windows-x64.zip) |
 
-[GitHub Releases / 更新说明](https://github.com/yaklang/yconnect/releases) · [最新版本](https://aliyun-oss.yaklang.com/yconnect/version.txt) · [SHA-256 校验](https://aliyun-oss.yaklang.com/yconnect/0.4.0/SHA256SUMS.txt)
+[GitHub Releases / 更新说明](https://github.com/yaklang/yconnect/releases) · [最新版本](https://aliyun-oss.yaklang.com/yconnect/version.txt) · [SHA-256 校验](https://aliyun-oss.yaklang.com/yconnect/0.5.0/SHA256SUMS.txt)
 
 正式发行的 macOS 应用经过 Developer ID 签名与 Apple 公证，Windows 程序和安装包经过 Authenticode 签名。macOS 将应用拖入 Applications；Windows 运行安装程序或解压便携包。Windows 扫码登录需要系统 WebView2。
 

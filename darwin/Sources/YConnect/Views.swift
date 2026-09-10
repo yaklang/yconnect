@@ -1185,7 +1185,6 @@ struct ManagerView: View {
                     BrandMark().fill(Brand.accent).frame(width: 28, height: 28)
                     Text("Y CONNECT").font(.system(size: 15, weight: .bold))
                     Spacer(minLength: 0)
-                    UpdateBadge(updates: updates)
                 }.padding(.horizontal, 16).padding(.vertical, 13)
                     .background(Brand.widgetSurfaceAlt)
                 List(selection: $navigation.selection) {
@@ -1295,6 +1294,7 @@ struct ManagerView: View {
                 Text(pageSubtitle).font(.system(size: 12.5)).foregroundStyle(.secondary)
             }
             Spacer()
+            UpdateBadge(updates: updates)
             if store.isAuthenticated {
                 if store.isAccountMode {
                     Button("兑换码") { navigation.showingRedemption = true }

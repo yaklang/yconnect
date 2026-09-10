@@ -18,7 +18,10 @@ FRAMEWORK = ROOT / 'darwin/.build/artifacts/darwin/Sparkle/Sparkle.xcframework/m
 NS = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 
 def run(*args):
-    return subprocess.run(list(map(str, args)), check=True, capture_output=True).stdout
+    try:
+        return subprocess.run(list(map(str, args)), check=True, capture_output=True).stdout
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f'{args[0]} failed: {error.stderr.decode(errors="replace")}') from error
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args): pass

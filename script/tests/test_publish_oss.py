@@ -63,6 +63,8 @@ else: raise SystemExit('Unexpected mock OSS operation')
                     'OSS_ACCESS_KEY_SECRET': 'fixture-secret', 'CDN_VERIFY_ATTEMPTS': '1',
                     'PUBLIC_BASE_URL': f'http://127.0.0.1:{self.server.server_port}/yconnect'}
         subprocess.run(['python3', str(ROOT / 'script/prepare-release-assets.py'), str(self.dist)], env=self.env, check=True, capture_output=True)
+        for name in ['appcast-macos.xml', 'appcast-windows.xml']:
+            (self.dist / name).write_text('<rss version="2.0"><channel><title>fixture</title></channel></rss>')
 
     def publish(self):
         return subprocess.run(['bash', str(ROOT / 'script/publish-oss.sh'), 'release', 'indexes'],
@@ -72,6 +74,8 @@ else: raise SystemExit('Unexpected mock OSS operation')
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('CDN raw-response verified: latest.json', result.stdout)
+        self.assertIn('CDN raw-response verified: appcast-macos.xml', result.stdout)
+        self.assertIn('CDN raw-response verified: appcast-windows.xml', result.stdout)
         public = self.store / 'yconnect'
         self.assertEqual((public / 'version.txt').read_text(), self.version + '\n')
         history = json.loads((public / 'releases.json').read_text())
