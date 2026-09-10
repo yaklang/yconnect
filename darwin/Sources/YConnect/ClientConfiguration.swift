@@ -258,6 +258,9 @@ final class ClientConfigurationRegistry {
     let descriptors: [ClientDescriptor]
     private let clients: [ClientID: any ClientConfiguring]
 
+    /// Safe fallback when adapter registration fails; account features remain available.
+    init() { clients = [:]; descriptors = [] }
+
     init(_ configurators: [any ClientConfiguring]) throws {
         var mapped: [ClientID: any ClientConfiguring] = [:]
         var ownedTargets: [URL: ClientID] = [:]

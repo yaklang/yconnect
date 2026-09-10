@@ -95,6 +95,7 @@ namespace YConnect.Views
             statusBar.Children.Clear(); if (store.Environment.Demo) statusBar.Children.Add(Ui.Badge("演示数据", "Accent", "AccentSoft"));
             var sync = Ui.Text(store.Busy ? "正在检测…" : store.LastRefresh.HasValue ? "● 已同步 " + store.LastRefresh.Value.ToString("HH:mm") : "等待连接", 10, store.Authenticated ? "Green" : "Muted"); sync.Margin = new Thickness(12, 0, 0, 0); sync.VerticalAlignment = VerticalAlignment.Center; statusBar.Children.Add(sync);
             var globalRecharge = Ui.SmallButton("充值  ↗", "manager-recharge", controller.OpenRecharge, "Primary"); globalRecharge.Margin = new Thickness(12, 0, 0, 0); statusBar.Children.Add(globalRecharge);
+            if (store.Mode == "account") { var redeemButton = Ui.SmallButton("兑换码", "manager-redeem", controller.OpenRedemption); redeemButton.Margin = new Thickness(8, 0, 0, 0); redeemButton.IsEnabled = !store.Busy; statusBar.Children.Add(redeemButton); }
             top.Children.Add(Ui.Stack(Ui.Id(Ui.Text(name.Item1, 24, "Ink", true), "manager-page-title"), Ui.Gap(6), Ui.Text(name.Item2, 12, "Muted")));
 
             if (Ui.HasFeedback(store)) { top.Children.Add(Ui.Gap(12)); top.Children.Add(Ui.Feedback(store)); }
@@ -106,8 +107,9 @@ namespace YConnect.Views
             var store = controller.Store;
             if (!store.Authenticated) return OverviewLogin();
             var balance = BalancePresentation.From(store); var summary = store.Dashboard?["account_summary"];
-            var balanceActions = Ui.Row(Ui.Badge("● 已连接"), new Border { Width = 8 }, Ui.SmallButton("充值余额  ↗", "overview-recharge", controller.OpenRecharge, "Primary"));
-            var hero = Ui.Card(Ui.Stack(Ui.Between(Ui.Label(balance.Label, 12, "Muted"), balanceActions), Ui.Gap(6), Ui.FitText(balance.Value, 32), Ui.Gap(10), Ui.QuotaBar(balance.Percent, 3)), 14, "AccentSoft");
+            var balanceActions = Ui.Row(Ui.SmallButton("充值余额  ↗", "overview-recharge", controller.OpenRecharge, "Primary"));
+            if (store.Mode == "account") { var redeemButton = Ui.SmallButton("兑换码", "balance-redeem", controller.OpenRedemption); redeemButton.Margin = new Thickness(6, 0, 0, 0); redeemButton.IsEnabled = !store.Busy; balanceActions.Children.Add(redeemButton); }
+            var hero = Ui.Card(Ui.Stack(Ui.Between(Ui.Label(balance.Label, 12, "Muted"), Ui.Badge("● 已连接")), Ui.Gap(6), Ui.FitText(balance.Value, 32), Ui.Gap(10), Ui.QuotaBar(balance.Percent, 3), Ui.Gap(10), balanceActions), 14, "AccentSoft");
             var metrics = Ui.Columns(3, hero, Metric("API Keys", store.Mode == "account" ? store.Keys.Count + " / " + store.Dashboard.Number("api_key_limit", 20) : "1", "当前可用凭证"), Metric("可用模型", store.Models.Count.ToString(), "按当前 Key 同步"));
             foreach (var item in metrics.Children.OfType<FrameworkElement>()) item.Margin = new Thickness(item.Margin.Left, 0, item.Margin.Right, 0);
             metrics.RowDefinitions[0].Height = new GridLength(1, GridUnitType.Star);
@@ -145,12 +147,11 @@ namespace YConnect.Views
             return Ui.Columns(2, account, api);
         }
         private async void CreateKeyFromOverview() { try { await CreateKey(); } catch (Exception e) { controller.Store.SetError(e.Message); } }
-        private async Task RedeemFromOverview()
+        public Task RedeemFromOverview()
         {
-            var input = Ui.Id(new TextBox { MaxLength = 80 }, "overview-redeem-code");
-            var dialog = new DialogWindow(this, "兑换账户额度", Ui.Stack(Ui.Text("输入兑换码，额度将进入当前账户。", 12, "Muted"), Ui.Gap(12), input), "兑换额度");
-            dialog.ContentRendered += (s, e) => input.Focus();
-            if (controller.ShowDialog(dialog) == true) await controller.Store.Run(() => controller.Store.Redeem(input.Text));
+            if (controller.Store.Mode != "account" || controller.Store.Busy) return Task.CompletedTask;
+            controller.ShowDialog(new RedemptionWindow(this, controller.Store));
+            return Task.CompletedTask;
         }
         private FrameworkElement Usage(string label, string value) => Ui.Stack(Ui.Text(label, 10, "Muted"), Ui.Gap(6), Ui.FitText(value, 22));
         private Border Metric(string label, string value, string note) => Ui.Card(Ui.Stack(Ui.Text(label, 11, "Muted"), Ui.Gap(8), Ui.FitText(value, 26), Ui.Gap(8), Ui.Text(note, 10, "Muted")), 14);

@@ -348,6 +348,74 @@ final class YConnectStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRedemptionPendingAndUnknownStatusAreNotReportedAsApplied() async throws {
+        for status in ["pending", "rejected"] {
+            let context = try makeContext()
+            defer { context.remove() }
+            let transport = StoreFlowTransport(redemptionStatus: status)
+            let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+            try await store.completeAccountLogin(cookies: [TestFixture.cookie()])
+            let applied = await store.redeem(code: "TEST-CODE-1234")
+            XCTAssertFalse(applied)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertFalse(store.operationMessage?.contains("兑换成功") ?? true)
+            XCTAssertFalse(store.isBusy)
+        }
+    }
+
+    @MainActor
+    func testAppliedRedemptionSurvivesBalanceRefreshFailure() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = StoreFlowTransport(failRefreshAfterRedemption: true)
+        let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+        try await store.completeAccountLogin(cookies: [TestFixture.cookie()])
+        let applied = await store.redeem(code: "TEST-CODE-1234")
+        XCTAssertTrue(applied)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.operationMessage, "兑换成功，到账 ¥12.50；余额暂未同步，请点击刷新核对")
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor
+    func testInvalidAndRepeatedRedemptionDoNotLeaveStaleSuccessFeedback() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = StoreFlowTransport(rejectDuplicateRedemption: true)
+        let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+        try await store.completeAccountLogin(cookies: [TestFixture.cookie()])
+        let invalid = await store.redeem(code: "short")
+        XCTAssertFalse(invalid)
+        XCTAssertTrue(transport.redemptionCodes.isEmpty)
+        let first = await store.redeem(code: "TEST-CODE-1234")
+        XCTAssertTrue(first)
+        let duplicate = await store.redeem(code: "TEST-CODE-1234")
+        XCTAssertFalse(duplicate)
+        XCTAssertEqual(store.errorMessage, "兑换码已使用")
+        XCTAssertNil(store.operationMessage)
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor
+    func testSignedOutAndBusyRedemptionSendNoRequest() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = StoreFlowTransport(redemptionDelayNanoseconds: 100_000_000)
+        let store = makeStore(context: context, transport: transport, vault: MemoryCredentialVault())
+        let signedOut = await store.redeem(code: "TEST-CODE-1234")
+        XCTAssertFalse(signedOut)
+        try await store.completeAccountLogin(cookies: [TestFixture.cookie()])
+        let first = Task { await store.redeem(code: "TEST-CODE-1234") }
+        for _ in 0..<100 { if store.isBusy { break }; await Task.yield() }
+        XCTAssertTrue(store.isBusy)
+        let busy = await store.redeem(code: "TEST-CODE-1234")
+        XCTAssertFalse(busy)
+        let applied = await first.value
+        XCTAssertTrue(applied)
+        XCTAssertEqual(transport.redemptionCodes, ["TEST-CODE-1234"])
+    }
+
+    @MainActor
     private func makeStore(
         context: TemporaryStoreContext,
         transport: StoreFlowTransport,
@@ -414,6 +482,10 @@ private final class StoreFlowTransport: HTTPTransport {
     private let rejectBusinessKey: Bool
     private let emptyBusinessModels: Bool
     private let usageUnavailable: Bool
+    private let redemptionDelayNanoseconds: UInt64
+    private let redemptionStatus: String
+    private let failRefreshAfterRedemption: Bool
+    private let rejectDuplicateRedemption: Bool
     private var requests: [CapturedRequest] = []
     private var keyIDs: [Int64]
     private var mutableCreatedLabels: [String] = []
@@ -424,11 +496,19 @@ private final class StoreFlowTransport: HTTPTransport {
         rejectBusinessKey: Bool = false,
         emptyBusinessModels: Bool = false,
         initialKeyIDs: [Int64] = [101],
-        usageUnavailable: Bool = false
+        usageUnavailable: Bool = false,
+        redemptionDelayNanoseconds: UInt64 = 0,
+        redemptionStatus: String = "applied",
+        failRefreshAfterRedemption: Bool = false,
+        rejectDuplicateRedemption: Bool = false
     ) {
         self.rejectBusinessKey = rejectBusinessKey
         self.emptyBusinessModels = emptyBusinessModels
         self.usageUnavailable = usageUnavailable
+        self.redemptionDelayNanoseconds = redemptionDelayNanoseconds
+        self.redemptionStatus = redemptionStatus
+        self.failRefreshAfterRedemption = failRefreshAfterRedemption
+        self.rejectDuplicateRedemption = rejectDuplicateRedemption
         keyIDs = initialKeyIDs
     }
 
@@ -438,7 +518,10 @@ private final class StoreFlowTransport: HTTPTransport {
     var redemptionCodes: [String] { locked { mutableRedemptionCodes } }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        try locked {
+        if request.url?.path == "/api/user/redeem", redemptionDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: redemptionDelayNanoseconds)
+        }
+        return try locked {
             let method = request.httpMethod ?? "GET"
             let path = request.url?.path ?? ""
             requests.append(CapturedRequest(
@@ -472,6 +555,9 @@ private final class StoreFlowTransport: HTTPTransport {
                 ])
             }
             if path == "/api/user/dashboard" {
+                if failRefreshAfterRedemption && !mutableRedemptionCodes.isEmpty {
+                    return response(request, status: 503, object: ["error": "unavailable", "message": "offline"])
+                }
                 return response(request, object: dashboard)
             }
             if path == "/api/user/usage", !usageUnavailable {
@@ -515,10 +601,13 @@ private final class StoreFlowTransport: HTTPTransport {
             }
             if path == "/api/user/redeem", method == "POST" {
                 let body = try bodyObject(request)
-                mutableRedemptionCodes.append(body["code"] as? String ?? "")
+                let code = body["code"] as? String ?? ""
+                if rejectDuplicateRedemption && mutableRedemptionCodes.contains(code) {
+                    return response(request, status: 409, object: ["error": "already_used", "message": "兑换码已使用"])
+                }
+                mutableRedemptionCodes.append(code)
                 return response(request, object: [
-                    "status": "applied",
-                    "message": "applied",
+                    "status": redemptionStatus,
                     "amount_cents": 1250,
                 ])
             }

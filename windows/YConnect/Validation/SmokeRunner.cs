@@ -107,7 +107,7 @@ namespace YConnect.Validation
                 await Click(app.Manager, "keys-create"); await Idle(); Assert(app.Store.Keys.Count == 3, "UI key creation failed"); var created = app.Store.Preferences.SelectedKey.Value;
                 app.DialogOpenedForValidation = dialog => dialog.Dispatcher.BeginInvoke(new Action(() => Invoke(Find<Button>(dialog, "dialog-confirm"))), DispatcherPriority.Background);
                 await Click(app.Manager, "key-delete-" + created); await Idle(); Assert(app.Store.Keys.Count == 2, "UI key deletion failed");
-                Find<TextBox>(app.Manager, "redeem-code").Text = "DEMO-REDEEM-1234"; await Click(app.Manager, "redeem-submit"); Assert(Math.Abs(app.Store.Remaining.Value - 138.6) < .01, "UI redemption failed");
+                await VerifyRedemption();
                 await Click(app.Manager, "nav-checks"); await Click(app.Manager, "checks-start"); await Idle(); Assert(app.Store.Checks.All(c => c.State == "passed"), "UI checks failed"); Capture(app.Manager, "09-connection-checks.png");
                 await Click(app.Manager, "probe-submit"); await Idle(); Assert(app.Store.Message.Contains("可访问"), "confirmed demo probe failed");
                 await Click(app.Manager, "probe-quality"); await Idle(); Assert(app.Store.QualityChecks.Count == 15 && app.Store.QualityChecks.All(x => new[] { "passed", "unsupported" }.Contains(x.State)), "full capability profile failed"); Capture(app.Manager, "09b-model-capability-profile.png");
@@ -303,6 +303,37 @@ namespace YConnect.Validation
             }
             finally { var current = System.Windows.Forms.Cursor.Position; if (current == near || current == far) System.Windows.Forms.Cursor.Position = original; app.Edge.CloseQuick(); }
         }
+        private static async Task VerifyRedemption()
+        {
+            var previous = app.DialogOpenedForValidation;
+            var completion = new TaskCompletionSource<bool>();
+            app.DialogOpenedForValidation = dialog => dialog.Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    Assert(dialog is RedemptionWindow && app.ModalOpen, "redemption did not open the native modal");
+                    var input = Find<TextBox>(dialog, "overview-redeem-code");
+                    var submit = Find<Button>(dialog, "dialog-confirm");
+                    Assert(!submit.IsEnabled, "empty redemption enabled");
+                    input.Text = "BAD"; Assert(!submit.IsEnabled, "invalid redemption enabled");
+                    input.Text = "DEMO-REDEEM-1234"; Assert(submit.IsEnabled, "valid redemption disabled");
+                    app.OpenRedemption();
+                    Assert(Application.Current.Windows.OfType<RedemptionWindow>().Count() == 1, "duplicate redemption modal");
+                    Invoke(submit); await Idle();
+                    Assert(input.Text == "" && !submit.IsEnabled, "applied code not cleared");
+                    Assert(Find<TextBlock>(dialog, "redemption-feedback").Text.Contains("兑换成功"), "redemption success feedback missing");
+                    Assert(Math.Abs(app.Store.Remaining.Value - 138.6) < .01, "UI redemption balance refresh failed");
+                    Capture(dialog, "08b-redemption-success.png");
+                    completion.TrySetResult(true);
+                }
+                catch (Exception error) { completion.TrySetException(error); }
+                finally { dialog.Close(); }
+            }), DispatcherPriority.Background);
+            try { await Click(app.Manager, "manager-redeem"); await completion.Task; }
+            finally { app.DialogOpenedForValidation = previous; }
+            steps.Add("Native redemption modal: adjacent header entry, input boundaries, single instance, submission, success, cleared input and refreshed balance passed.");
+        }
+
         private static async Task Idle()
         {
             var timeout = Stopwatch.StartNew();

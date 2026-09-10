@@ -21,6 +21,10 @@ enum YConnectMain {
             renderManager(application: application, output: output)
             return
         }
+        if let output = argument(after: "--render-redemption") {
+            renderRedemption(application: application, output: output)
+            return
+        }
         if let output = argument(after: "--render-recharge") {
             renderRecharge(application: application, output: output)
             return
@@ -41,10 +45,22 @@ enum YConnectMain {
             return
         }
 
-        let controller = AppController()
+        let controller: AppController
+        if !StartupPresentation.allSmokeArguments.isDisjoint(with: CommandLine.arguments) {
+            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-startup-smoke-\(UUID().uuidString)")
+            let environment = AppEnvironment.preview(at: scratch)
+            let store = CommandLine.arguments.contains("--smoke-startup-degraded")
+                ? YConnectStore(environment: environment, clientRegistryFactory: { throw CocoaError(.fileWriteNoPermission) }, preview: true)
+                : YConnectStore.preview(environment: environment, authenticated: false)
+            controller = AppController(environment: environment, store: store)
+        } else {
+            let environment = AppEnvironment.current()
+            let diagnostics = StartupDiagnostics(directory: StartupDiagnostics.directory(for: environment))
+            controller = AppController(environment: environment, diagnostics: diagnostics)
+        }
         application.delegate = controller
         application.setActivationPolicy(.accessory)
-        application.run()
+        withExtendedLifetime(controller) { application.run() }
     }
 
     private static func argument(after flag: String) -> String? {
@@ -69,6 +85,9 @@ enum YConnectMain {
                 ? "“Y CONNECT-4”已删除"
                 : nil
         )
+        if CommandLine.arguments.contains("--startup-warning") {
+            store.startupWarning = "客户端适配暂时不可用，账户与小组件仍可使用。请在设置中打开诊断文件夹，将诊断文件提供给支持人员。"
+        }
         let presentation = WidgetPresentationState()
         if let maximumHeight = argument(after: "--maximum-height").flatMap(Double.init), maximumHeight >= 300 {
             presentation.maximumHeight = maximumHeight
@@ -129,6 +148,17 @@ enum YConnectMain {
             fputs("manager render failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    @MainActor
+    private static func renderRedemption(application: NSApplication, output: String) {
+        application.setActivationPolicy(.prohibited)
+        application.finishLaunching()
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-redemption-preview-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let store = YConnectStore.preview(environment: .preview(at: scratch))
+        do { try render(view: RedemptionView(store: store), size: NSSize(width: 448, height: 230), output: output) }
+        catch { fputs("redemption render failed\n", stderr); exit(1) }
     }
 
     @MainActor

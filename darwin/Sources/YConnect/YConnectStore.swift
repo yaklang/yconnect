@@ -93,6 +93,8 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var isBusy = false
     @Published private(set) var operationMessage: String?
     @Published var errorMessage: String?
+    @Published var startupWarning: String?
+    @Published private(set) var keychainFailureStatus: Int32?
     @Published private(set) var serviceChecks: [ServiceCheck] = []
     @Published private(set) var clientMessages: [ClientID: String] = [:]
     @Published private(set) var clientStatuses: [ClientID: ClientConfigurationStatus] = [:]
@@ -106,7 +108,7 @@ final class YConnectStore: ObservableObject {
 
     let environment: AppEnvironment
     private let api: YakCoolAPI
-    private let credentials: CredentialRepository
+    private let credentials: AsyncCredentialRepository
     private let clients: ClientConfigurationRegistry
     private let installationDetector: ClientInstallationDetecting
     private let isPreview: Bool
@@ -114,6 +116,7 @@ final class YConnectStore: ObservableObject {
     private var webCookies: [StoredWebCookie] = []
     private var standaloneAPIKey: String?
     private var loginGeneration = UUID()
+    private var keychainStartupWarning: String?
     private var contextWindowInputs: [ClientID: [String: String]] = [:]
     private var isRefreshingSpending = false
     private var lastSpendingAttempt: Date?
@@ -186,18 +189,27 @@ final class YConnectStore: ObservableObject {
         credentialVault: CredentialVault? = nil,
         openCodeConfigurator: OpenCodeConfigurator? = nil,
         clientRegistry: ClientConfigurationRegistry? = nil,
+        clientRegistryFactory: (() throws -> ClientConfigurationRegistry)? = nil,
         installationDetector: ClientInstallationDetecting? = nil,
         preview: Bool = false
     ) {
         self.environment = environment
         self.api = api
         let vault = credentialVault ?? KeychainVault(service: environment.keychainService)
-        credentials = CredentialRepository(vault: vault)
+        credentials = AsyncCredentialRepository(vault: vault)
         isPreview = preview
-        clients = clientRegistry ?? (try! DefaultClientConfigurationRegistry.make(
-            environment: environment,
-            openCodeConfigurator: openCodeConfigurator
-        ))
+        var registrationFailed = false
+        if let clientRegistry {
+            clients = clientRegistry
+        } else {
+            do {
+                clients = try clientRegistryFactory?() ?? DefaultClientConfigurationRegistry.make(
+                    environment: environment, openCodeConfigurator: openCodeConfigurator)
+            } catch {
+                clients = ClientConfigurationRegistry()
+                registrationFailed = true
+            }
+        }
         self.installationDetector = installationDetector
             ?? (preview ? StaticClientInstallationDetector() : DefaultClientInstallationDetector())
         let detectedClientIDs = self.installationDetector.installedClientIDs(from: clients.descriptors)
@@ -230,6 +242,23 @@ final class YConnectStore: ObservableObject {
                 : "尚未写入 \(descriptor.name) 配置"
         }
         contextWindowInput = rememberedContextWindowInput()
+        if registrationFailed {
+            startupWarning = "客户端适配暂时不可用，账户与小组件仍可使用。请在设置中打开诊断文件夹，将诊断文件提供给支持人员。"
+        }
+    }
+
+    func openStartupDiagnostics() {
+        let directory = StartupDiagnostics.directory(for: environment)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            guard NSWorkspace.shared.open(directory) else {
+                errorMessage = "诊断文件夹无法打开：\(directory.path)"
+                return
+            }
+        } catch {
+            errorMessage = "无法创建诊断文件夹，请检查应用数据目录权限：\(directory.path)"
+        }
     }
 
     var isAuthenticated: Bool { phase.isAuthenticated }
@@ -377,28 +406,41 @@ final class YConnectStore: ObservableObject {
 
     func restoreSession() async {
         guard !isPreview else { return }
+        let generation = loginGeneration
         phase = .restoring
         clearVisibleData()
         do {
-            let cookies = try credentials.loadWebCookies()
+            let cookies = try await credentials.loadWebCookies()
+            guard generation == loginGeneration else { return }
             if !cookies.isEmpty {
                 _ = try await api.verifyWebCookies(cookies)
+                guard generation == loginGeneration else { return }
                 webCookies = cookies
                 phase = .account
                 preferredAuthenticationMode = .account
                 try await refreshAccount()
                 return
             }
-            if let key = try credentials.loadAPIKey() {
+            if let key = try await credentials.loadAPIKey() {
+                guard generation == loginGeneration else { return }
                 try await loadBusinessKey(key, persist: false)
                 return
             }
+            guard generation == loginGeneration else { return }
             phase = .signedOut
         } catch {
+            guard generation == loginGeneration else { return }
+            if let keychainError = error as? KeychainError {
+                keychainFailureStatus = keychainError.status
+                clearKeychainStartupWarning()
+                let warning = keychainError.localizedDescription + " 已保留原有凭据，可重新登录。"
+                keychainStartupWarning = warning
+                startupWarning = [startupWarning, warning].compactMap { $0 }.joined(separator: "\n")
+            }
             let invalidatesCredential = (error as? YConnectError)?.invalidatesStoredCredential ?? false
             if invalidatesCredential {
-                try? credentials.deleteWebCookies()
-                try? credentials.deleteAPIKey()
+                try? await credentials.deleteWebCookies()
+                try? await credentials.deleteAPIKey()
             }
             webCookies = []
             standaloneAPIKey = nil
@@ -409,13 +451,28 @@ final class YConnectStore: ObservableObject {
         }
     }
 
+    private func clearKeychainStartupWarning() {
+        guard let warning = keychainStartupWarning else { return }
+        let remaining = (startupWarning ?? "").components(separatedBy: "\n").filter { $0 != warning && !$0.isEmpty }
+        startupWarning = remaining.isEmpty ? nil : remaining.joined(separator: "\n")
+        keychainStartupWarning = nil
+    }
+
     func completeAccountLogin(cookies: [StoredWebCookie]) async throws {
         guard !cookies.isEmpty else { throw YConnectError.invalidCredential("没有读取到 YAKCOOL 用户会话") }
         isBusy = true
         defer { isBusy = false }
+        let generation = loginGeneration
         _ = try await api.verifyWebCookies(cookies)
-        try credentials.saveWebCookies(cookies)
-        try? credentials.deleteAPIKey()
+        guard generation == loginGeneration else { throw CancellationError() }
+        do { try await credentials.saveWebCookies(cookies) }
+        catch {
+            if let keychainError = error as? KeychainError { keychainFailureStatus = keychainError.status }
+            throw error
+        }
+        guard generation == loginGeneration else { throw CancellationError() }
+        try? await credentials.deleteAPIKey()
+        guard generation == loginGeneration else { throw CancellationError() }
         loginGeneration = UUID()
         rechargeSession = nil
         clearVisibleData()
@@ -424,6 +481,8 @@ final class YConnectStore: ObservableObject {
         phase = .account
         preferredAuthenticationMode = .account
         try await refreshAccount()
+        clearKeychainStartupWarning()
+        keychainFailureStatus = nil
         operationMessage = "YAKCOOL 账户已安全连接"
     }
 
@@ -434,6 +493,8 @@ final class YConnectStore: ObservableObject {
         do {
             let key = try YakCoolAPI.normalizedAPIKey(rawValue)
             try await loadBusinessKey(key, persist: true)
+            clearKeychainStartupWarning()
+            keychainFailureStatus = nil
             operationMessage = "API Key 验证成功"
         } catch {
             errorMessage = error.localizedDescription
@@ -465,13 +526,18 @@ final class YConnectStore: ObservableObject {
         isBusy = true
         defer { isBusy = false }
         if phase == .account, !webCookies.isEmpty { _ = try? await api.logout(cookies: webCookies) }
-        try? credentials.deleteWebCookies()
-        try? credentials.deleteAPIKey()
+        var cleanupError: Error?
+        do { try await credentials.deleteWebCookies() } catch { cleanupError = error }
+        do { try await credentials.deleteAPIKey() } catch { cleanupError = cleanupError ?? error }
         webCookies = []
         standaloneAPIKey = nil
         clearVisibleData()
         phase = .signedOut
         operationMessage = "已退出；本地客户端配置不会被自动改动"
+        if let cleanupError {
+            if let keychainError = cleanupError as? KeychainError { keychainFailureStatus = keychainError.status }
+            errorMessage = "当前会话已退出，但钥匙串中的凭据未能清理。\n\(cleanupError.localizedDescription)"
+        }
     }
 
     func createAPIKey(label: String) async -> Bool {
@@ -508,24 +574,40 @@ final class YConnectStore: ObservableObject {
         }
     }
 
+    /// True only when the server confirms that the credit was applied.
     func redeem(code: String) async -> Bool {
-        guard phase == .account else { return false }
+        guard phase == .account, !isBusy else { return false }
+        let cookies = webCookies
+        let generation = loginGeneration
         isBusy = true
         errorMessage = nil
+        operationMessage = nil
         defer { isBusy = false }
         do {
-            let result = try await api.redeem(code: code, cookies: webCookies)
-            try await refreshAccount()
+            let result = try await api.redeem(code: code, cookies: cookies)
+            guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+            let applied = result.status == "applied"
+            let message: String
             switch result.status {
             case "applied":
-                operationMessage = result.amountCents.map { "兑换成功，到账 ¥\(String(format: "%.2f", Double($0) / 100))" } ?? "兑换成功"
+                message = result.amountCents.map { "兑换成功，到账 ¥\(String(format: "%.2f", Double($0) / 100))" } ?? "兑换成功"
             case "pending":
-                operationMessage = result.message ?? "兑换正在处理，请稍后使用同一兑换码重试"
+                message = result.message ?? "兑换正在处理，请稍后使用同一兑换码重试"
             default:
-                operationMessage = result.message ?? "兑换状态：\(result.status)"
+                message = result.message ?? "兑换状态：\(result.status)"
             }
-            return true
+            // A failed balance refresh must not turn confirmed credit into a failed redemption.
+            do {
+                try await refreshAccount()
+                guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+                operationMessage = message
+            } catch {
+                guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+                operationMessage = message + "；余额暂未同步，请点击刷新核对"
+            }
+            return applied
         } catch {
+            guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
@@ -858,13 +940,20 @@ final class YConnectStore: ObservableObject {
     }
 
     private func loadBusinessKey(_ key: String, persist: Bool) async throws {
+        let generation = loginGeneration
         async let infoRequest = api.keyInfo(apiKey: key)
         async let modelsRequest = api.keyModels(apiKey: key)
         let (info, models) = try await (infoRequest, modelsRequest)
+        guard generation == loginGeneration else { throw CancellationError() }
         if persist {
-            try credentials.saveAPIKey(key)
-            try? credentials.deleteWebCookies()
+            do { try await credentials.saveAPIKey(key) }
+            catch {
+                if let keychainError = error as? KeychainError { keychainFailureStatus = keychainError.status }
+                throw error
+            }
+            try? await credentials.deleteWebCookies()
         }
+        guard generation == loginGeneration else { throw CancellationError() }
         webCookies = []
         standaloneAPIKey = key
         dashboard = nil

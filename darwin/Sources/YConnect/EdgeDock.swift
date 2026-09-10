@@ -321,7 +321,7 @@ final class YConnectEdgeDockController: NSObject {
     @objc private func dockRight() { EdgeDockPreferences.isOnLeft = false; repositionTab() }
     @objc private func resetPosition() { EdgeDockPreferences.resetPosition(); repositionTab() }
     @objc private func hideFromMenu() { setEnabled(false) }
-    @objc private func screenParametersChanged() { repositionTab() }
+    @objc private func screenParametersChanged() { update() }
 
     static func renderPreview(to output: URL) throws {
         let size = NSSize(width: 158, height: 112)

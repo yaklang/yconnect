@@ -3,7 +3,7 @@
 `VERSION` 是版本来源。Windows 各项目直接读取它；macOS 版本常量、Info.plist、根目录 `version.txt` 由以下命令同步。应用版本显示与 User-Agent 使用平台版本信息。
 
 ```sh
-python3 script/version.py --set 0.3.0
+python3 script/version.py --set 0.4.0
 python3 script/version.py
 python3 -m unittest discover -s script/tests -v
 ```

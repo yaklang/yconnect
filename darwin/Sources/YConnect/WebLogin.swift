@@ -48,6 +48,9 @@ enum AccountLoginStatusText {
     static let verifying = "检测到新的用户会话，正在安全验证…"
 
     static func afterVerificationFailure(_ error: Error) -> String {
+        if let keychainError = error as? KeychainError {
+            return keychainError.localizedDescription + " 点击“重新加载”后重试。"
+        }
         if case .server(let status, _, _) = error as? YConnectError,
            status == 401 || status == 403 {
             return waiting
@@ -67,6 +70,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
     private var statusLabel: NSTextField?
     private var timer: Timer?
     private var isVerifying = false
+    private var keychainRetryPaused = false
     private var verificationGate = AccountLoginVerificationGate()
     private var completion: (([StoredWebCookie]) async throws -> Void)?
 
@@ -118,7 +122,9 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         let status = NSTextField(labelWithString: AccountLoginStatusText.loading)
         status.font = .systemFont(ofSize: 11.5, weight: .medium)
         status.textColor = .secondaryLabelColor
-        status.lineBreakMode = .byTruncatingTail
+        status.lineBreakMode = .byWordWrapping
+        status.maximumNumberOfLines = 3
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let reload = NSButton(title: "重新加载", target: self, action: #selector(reloadPage))
         reload.bezelStyle = .rounded
@@ -164,7 +170,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 42),
+            footer.heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
             webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
             webView.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor),
@@ -224,6 +230,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
         statusLabel = nil
         completion = nil
         isVerifying = false
+        keychainRetryPaused = false
         verificationGate.reset()
     }
 
@@ -233,6 +240,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
     private func loadLoginPage() {
         guard let url = URL(string: "https://yakcool.com/login") else { return }
         verificationGate.reset()
+        keychainRetryPaused = false
         statusLabel?.stringValue = AccountLoginStatusText.loading
         webView?.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData))
     }
@@ -242,7 +250,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
     }
 
     private func inspectCookies() {
-        guard !isVerifying, let webView else { return }
+        guard !isVerifying, !keychainRetryPaused, let webView else { return }
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             Task { @MainActor in
                 guard let self, !self.isVerifying else { return }
@@ -259,6 +267,7 @@ final class AccountLoginCoordinator: NSObject, NSWindowDelegate, WKNavigationDel
                     self.dismiss()
                 } catch {
                     self.verificationGate.recordFailure(cookies: stored)
+                    self.keychainRetryPaused = error is KeychainError
                     self.statusLabel?.stringValue = AccountLoginStatusText.afterVerificationFailure(error)
                     self.isVerifying = false
                 }

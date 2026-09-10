@@ -18,6 +18,53 @@ Windows 增加了不抢焦点的贴边余额速览、原生平滑拖动、可收
 
 macOS 小组件采用 Windows 的实体卡片布局：大号余额、用量条、消费速览、独立客户端启动按钮和设置入口，支持深浅色及小屏滚动。开发包为 `Y CONNECT Dev.app`，正式包为 `Y CONNECT.app`；内部 Bundle ID、凭证目录、配置 provider ID 与发行下载文件名保持兼容。
 
+## 兑换码入口
+
+macOS 和 Windows 的管理中心、小组件在充值旁提供 **兑换码** 按钮，仅账户登录时显示。小组件入口打开管理中心的原生兑换弹窗，复用 `/api/user/redeem` 及账户余额刷新。Windows 概览余额卡也提供相邻入口。macOS 弹窗校验 12–64 位字母、数字或连字符，提交期间禁用重复操作，显示兑换结果并保留输入以便失败或处理中时重试。
+
+兑换功能已完成 macOS 单元测试、离线渲染与两端 CI 验证，包括 Windows 原生弹窗提交、便携包及安装/卸载校验；真实业务回归验证了成功到账、余额同步和重复兑换被拒绝。账户信息及本地验收记录不随公开版本发布。
+
+## macOS 启动与异常兜底
+
+普通双击启动会主动展示小组件；再次从 Finder 打开时，会唤回管理窗口或小组件。登录项自动启动保持后台运行，`--show-widget` / `--show-manager` 可明确指定界面。托盘尚未生成时仅短暂重试，之后在当前可见屏幕右上角显示小组件；屏幕连接变化会重新创建或定位贴边入口。
+
+适配器注册错误不再触发 `try!` 崩溃：客户端适配暂时停用，账户与小组件仍可打开，并显示持久的启动提示。开机启动注册失败也会显示错误；开发版不会修改系统登录项。
+
+启动检查点保存在 `~/Library/Application Support/YConnect/Diagnostics/`，开发版为 `YConnectDev/Diagnostics/`。只记录版本、系统、架构、进程号、时间、固定启动阶段和故障类别，不记录 Key、Cookie、命令行、模型会话或服务端响应。每份文件权限 0600，最多保留近期十份已结束的记录及仍在运行的实例。上次没有正常退出时，下次启动会提示，并提供打开诊断文件夹的入口；强制结束或系统关机也可能产生此提示，不能单凭它认定崩溃。
+
+这些兜底处理可恢复的初始化失败和界面不可见问题；操作系统终止、原生崩溃等仍需 macOS 崩溃报告定位，不能通过 Swift `catch` 保证不中断。当前用户反馈缺少设备版本及崩溃栈，尚未确认该用户的真实根因。
+
+本机验证（使用隔离的未登录 fixture，不访问真实凭证）：
+
+```sh
+swift test --package-path darwin -Xswiftc -warnings-as-errors
+swift build --package-path darwin --configuration release -Xswiftc -warnings-as-errors
+darwin/.build/release/YConnect --smoke-startup
+darwin/.build/release/YConnect --smoke-login-startup
+darwin/.build/release/YConnect --smoke-startup-no-tray
+darwin/.build/release/YConnect --smoke-startup-degraded
+```
+
+新增用例覆盖：手动 / 登录启动分流、再次打开、托盘不可用、适配器初始化失败、诊断目录不可写、诊断文件损坏、活动进程误判、异常退出提示与日志字段白名单。CI 同时运行启动 smoke 测试。
+
+2026-09-10 本地验收：macOS 15.7.4 / Apple Silicon；打包后的 Release 开发应用通过全部 7 项启动 / 窗口 smoke（含失焦收起、PIN、贴边入口）。错误提示原生预览及执行日志保存在本地 `.tmp/startup-diagnosis/`。0.4.0 正式签名包由 Release 工作流构建和验证。
+
+## macOS 钥匙串兼容性与无阻塞访问
+
+已确认代码没有启用 Touch ID、生物识别访问控制、Secure Enclave 或 iCloud 同步。旧实现的两个问题是：在 MainActor 内同步调用 Security.framework；在默认的 macOS 文件型钥匙串上使用 `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`。Apple 说明 `SecItemCopyMatching` 会阻塞调用线程，而 `kSecAttrAccessible` 在 macOS 需要 Data Protection Keychain 或同步存储支持。这些是需要修复的风险点，但不足以确认某位用户的闪退根因。
+
+现在凭据读取、写入和删除都由独立串行队列执行；自动恢复读取设置不弹认证 UI 的 `LAContext`。保持既有本地钥匙串与 service/account，因此不迁移或删除用户已有凭据。用户拒绝、钥匙串锁定、服务不可用、签名权限不匹配等情况显示分类提示及 OSStatus；恢复失败保留凭据，保存失败不会改用明文或冒充登录成功。网页登录的凭据保存失败后暂停自动重试，用户可在处理系统授权后点击“重新加载”。诊断只增加状态码，不保存账户或凭据内容。
+
+可通过下列命令运行包含真实钥匙串往返的定向检查；真实项使用随机的测试 service 和假数据，结束后清除，不访问正式用户凭据：
+
+```sh
+YCONNECT_RUN_KEYCHAIN_INTEGRATION=1 swift test --package-path darwin --filter KeychainSafetyTests
+```
+
+本次验收：开启真实测试钥匙串往返后，完整套件共 204 项，202 项通过、2 项外部 OpenCode CLI 测试按需跳过；打包开发版通过 7 项启动 / 窗口 smoke。测试项已删除，未访问正式用户凭据。尚未复现或确认反馈用户的具体崩溃；修复纳入 0.4.0。
+
+参考：[SecItemCopyMatching](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))、[kSecAttrAccessible](https://developer.apple.com/documentation/security/ksecattraccessible)、[Keychain 实现差异](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)。
+
 ## macOS 充值与 Agent 启动
 
 macOS 控制面板新增 **账户充值**：微信扫码登录 YAKCOOL 账户后选择 ¥1–¥10,000 的金额（最多两位小数）和微信/支付宝，在原生页面扫码支付。所有充值入口仅在微信账户登录后显示；API Key 模式、未登录及会话恢复中均隐藏，退出账户或切换至 API Key 时自动离开充值页。客户端先核对订单金额，再显示二维码；支付码展示两分钟，到账后自动同步控制面板、菜单栏和小组件余额。离开页面后，本次运行中可返回继续查询；二维码过期仍可手动查询迟到的付款。
@@ -118,7 +165,7 @@ Gemini CLI 是明确的协议边界：CC-Switch 的 Gemini takeover 仍把 Gemin
 
 Y CONNECT 把凭证视为敏感数据，而不是普通偏好设置：
 
-- 用户会话和独立登录 API Key 保存在 macOS Keychain，保护级别为 AfterFirstUnlockThisDeviceOnly。
+- 用户会话和独立登录 API Key 保存在 macOS 本地登录钥匙串。保留既有 service/account，不切换到 Data Protection Keychain，不声明当前存储不支持的 ThisDeviceOnly 属性。
 - API Key 不进入 UserDefaults、日志、仓库或客户端配置明文。
 - 账户 Cookie 只发送到 yakcool.com；业务 Key 只发送到 YAKCOOL 自查询接口和受信任的 Yaklang HTTPS 网关。
 - 下游客户端需要读取的 Key 分别保存到 ~/Library/Application Support/YConnect/Secrets/，每个文件固定为 0600，配置里只写官方支持的 file / helper / command 引用。

@@ -96,6 +96,10 @@ jobs:
           "$BIN" --development --smoke-widget-focus
           "$BIN" --development --smoke-widget-transient
           "$BIN" --development --smoke-edge-widget-focus
+          "$BIN" --smoke-startup
+          "$BIN" --smoke-login-startup
+          "$BIN" --smoke-startup-no-tray
+          "$BIN" --smoke-startup-degraded
 
       - name: Ensure ImageMagick
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick

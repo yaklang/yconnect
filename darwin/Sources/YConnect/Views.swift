@@ -40,11 +40,19 @@ enum WidgetMetrics {
 
     @MainActor
     static func idealHeight(for store: YConnectStore, presentation: WidgetPresentationState? = nil) -> CGFloat {
-        if store.phase == .restoring { return 250 }
+        let warningHeight: CGFloat
+        if let warning = store.startupWarning {
+            let textHeight = (warning as NSString).boundingRect(
+                with: NSSize(width: width - 70, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: NSFont.systemFont(ofSize: 11.5)]).height
+            warningHeight = max(110, ceil(textHeight) + 76)
+        } else { warningHeight = 0 }
+        if store.phase == .restoring { return 250 + warningHeight }
         if !store.isAuthenticated {
-            return store.preferredAuthenticationMode == .account
+            return (store.preferredAuthenticationMode == .account
                 ? signedOutAccountHeight
-                : signedOutAPIKeyHeight
+                : signedOutAPIKeyHeight) + warningHeight
         }
         let clientSlots = min(store.installedClientDescriptors.count, 4)
         let rows = max(1, Int(ceil(Double(clientSlots) / 2)))
@@ -61,7 +69,7 @@ enum WidgetMetrics {
         }
         let hasExpandedSection = expandedURLs > 0 || expandedModels > 0
         let breathingRoom = hasExpandedSection ? 0 : collapsedBreathingRoom
-        return base + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
+        return base + warningHeight + CGFloat(rows * 38) + (store.hasTransientOperationMessage ? 38 : 0)
             + expandedURLs + expandedModels + quickModels + breathingRoom + (store.isAccountMode ? 150 : 75)
     }
 
@@ -125,6 +133,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
 final class ManagerNavigation: ObservableObject {
     @Published var selection: ManagerSection? = .overview
     @Published private(set) var apiKeyCreationRequestID = 0
+    @Published var showingRedemption = false
 
     var selectedSection: ManagerSection { selection ?? .overview }
 
@@ -212,6 +221,25 @@ struct StatusBadge: View {
     }
 }
 
+struct StartupWarningView: View {
+    @ObservedObject var store: YConnectStore
+
+    var body: some View {
+        if let warning = store.startupWarning {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("启动时遇到问题", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(warning).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+                Button("打开启动诊断文件夹") { store.openStartupDiagnostics() }
+                    .font(.system(size: 11))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12).background(Color.orange.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+        }
+    }
+}
+
 struct WidgetView: View {
     @ObservedObject var store: YConnectStore
     @ObservedObject var presentation: WidgetPresentationState
@@ -219,6 +247,7 @@ struct WidgetView: View {
     let openManager: (ManagerSection) -> Void
     let openAPIKeyCreation: () -> Void
     let closeWidget: () -> Void
+    var openRedemption: () -> Void = {}
     @State private var apiKey = ""
     @State private var copiedEndpointID: String?
     @State private var selectedAccessModelID: String?
@@ -253,6 +282,7 @@ struct WidgetView: View {
     private var widgetContent: some View {
         VStack(spacing: 9) {
             header
+            StartupWarningView(store: store)
             switch store.phase {
             case .restoring: restoring
             case .signedOut: login
@@ -496,6 +526,8 @@ struct WidgetView: View {
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Brand.green)
                 Spacer()
                 if store.isAccountMode {
+                    Button("兑换码", action: openRedemption)
+                        .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
                     Button { openManager(.recharge) } label: { Label("充值", systemImage: "arrow.up.right") }
                         .buttonStyle(SmallPrimaryButtonStyle()).controlSize(.small)
                 }
@@ -1194,6 +1226,7 @@ struct ManagerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     pageHeader
+                    StartupWarningView(store: store)
                     pageContent
                 }
                 .padding(28)
@@ -1201,9 +1234,13 @@ struct ManagerView: View {
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
+        .sheet(isPresented: $navigation.showingRedemption) {
+            RedemptionView(store: store)
+        }
         .frame(minWidth: 940, minHeight: 640)
         .tint(Brand.accent)
         .onChange(of: store.phase, initial: true) { _, _ in
+            if !store.isAccountMode { navigation.showingRedemption = false }
             if navigation.selection == .recharge && !store.isAccountMode {
                 navigation.selection = .overview
             }
@@ -1221,7 +1258,7 @@ struct ManagerView: View {
             newKeyLabelFocused = true
         }
         .alert("Y CONNECT", isPresented: Binding(
-            get: { store.errorMessage != nil },
+            get: { store.errorMessage != nil && !navigation.showingRedemption },
             set: { if !$0 { store.errorMessage = nil } }
         )) {
             Button("知道了") { store.errorMessage = nil }
@@ -1255,6 +1292,10 @@ struct ManagerView: View {
             }
             Spacer()
             if store.isAuthenticated {
+                if store.isAccountMode {
+                    Button("兑换码") { navigation.showingRedemption = true }
+                        .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
+                }
                 if store.isAccountMode && activeSection != .recharge {
                     Button { navigation.selection = .recharge } label: { Label("充值", systemImage: "creditcard") }
                         .buttonStyle(SmallPrimaryButtonStyle())
@@ -1719,6 +1760,9 @@ struct ManagerView: View {
                         set: { _ = launchAtLogin.setEnabled($0) }
                     ))
                     Text(launchAtLogin.statusDetail).font(.system(size: 11)).foregroundStyle(.secondary)
+                    if let error = launchAtLogin.errorMessage {
+                        Text(error).font(.system(size: 11)).foregroundStyle(.red)
+                    }
                 }.padding(.top, 8)
             }
             GroupBox("安全边界") {
@@ -1727,6 +1771,13 @@ struct ManagerView: View {
                     securityLine("只向 yakcool.com 和 aibalance.yaklang.com 发送凭证")
                     securityLine("退出登录不会擅自覆盖或删除任何客户端配置")
                     securityLine(store.environment.isDevelopment ? "开发包使用隔离目录，不修改真实客户端配置" : "每次应用客户端配置前都创建可恢复备份")
+                }.padding(.top, 8)
+            }
+            GroupBox("问题排查") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("启动诊断只记录版本、系统和启动阶段，不记录 API Key、Cookie 或会话内容。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Button("打开启动诊断文件夹") { store.openStartupDiagnostics() }
                 }.padding(.top, 8)
             }
             LabeledContent("版本") {

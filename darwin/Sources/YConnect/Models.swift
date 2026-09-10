@@ -386,7 +386,7 @@ struct ServiceCheck: Identifiable, Equatable {
     var state: State
 }
 
-struct StoredWebCookie: Codable, Equatable {
+struct StoredWebCookie: Codable, Equatable, Sendable {
     let name: String
     let value: String
     let domain: String

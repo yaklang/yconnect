@@ -74,7 +74,9 @@ namespace YConnect.Views
             var value = Ui.Id(Ui.Text(balance.Value, 24, "Ink", true), "widget-balance-value");
             var status = Ui.Stack(Ui.Text(store.Mode == "account" ? "● 账户已安全连接" : "● Key 已安全连接", 11, "Green", true), Ui.Gap(5), Ui.Text(balance.Label + (balance.Stale ? " · 待同步" : ""), 10, "Muted"));
             var recharge = Ui.SmallButton("充值  ↗", "widget-recharge", controller.OpenRecharge, "Primary"); recharge.MinWidth = 62;
-            return Ui.Card(Ui.Stack(Ui.Between(status, recharge), Ui.Gap(7), value, Ui.Gap(9), Ui.QuotaBar(balance.Percent, 3)), 10, "SurfaceAlt");
+            var actions = Ui.Row(recharge);
+            if (store.Mode == "account") { var redeem = Ui.SmallButton("兑换码", "widget-redeem", controller.OpenRedemption); redeem.Margin = new Thickness(6, 0, 0, 0); redeem.IsEnabled = !store.Busy; actions.Children.Add(redeem); }
+            return Ui.Card(Ui.Stack(Ui.Between(status, actions), Ui.Gap(7), value, Ui.Gap(9), Ui.QuotaBar(balance.Percent, 3)), 10, "SurfaceAlt");
         }
         private int expansionRevision;
         private void AnimateConnectionChange()

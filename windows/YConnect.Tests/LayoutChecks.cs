@@ -95,6 +95,15 @@ internal static class LayoutChecks
                 Require(ReferenceEquals(application.Controller, app) && !Motion.Allowed, "Rendering must not start production services or animations.");
                 Require(((SolidColorBrush)Ui.Brush("Sidebar")).Color != ((SolidColorBrush)Ui.Brush("Surface")).Color, "Sidebar must be distinct from content.");
                 Find<Button>(root, "manager-recharge"); Find<Button>(root, "overview-recharge");
+                Find<Button>(root, "manager-redeem"); Find<Button>(root, "balance-redeem");
+                var redemption = new RedemptionWindow(null, store);
+                var redemptionRoot = (FrameworkElement)redemption.Content; Layout(redemptionRoot, 460, double.PositiveInfinity);
+                var redeemInput = Find<TextBox>(redemptionRoot, "overview-redeem-code");
+                var redeemSubmit = Find<Button>(redemptionRoot, "dialog-confirm");
+                Require(!redeemSubmit.IsEnabled, "Empty redemption can submit.");
+                redeemInput.Text = "BAD"; Require(!redeemSubmit.IsEnabled, "Invalid redemption can submit.");
+                redeemInput.Text = "DEMO-REDEEM-1234"; Require(redeemSubmit.IsEnabled, "Valid redemption disabled.");
+                Save(redemptionRoot, output, theme + "-redemption"); redemption.Close();
                 foreach (var id in new[] { "key-select", "copy-key", "copy-access", "new-key", "protocols", "model-search", "refresh", "pin", "checks", "redeem", "signout", "settings", "keys" })
                     Require(All<FrameworkElement>(root).Any(x => AutomationProperties.GetAutomationId(x) == "overview-" + id), "Overview missing " + id);
                 foreach (var client in store.Clients.InstalledClients(store.Preferences.RecentClients)) Find<Button>(root, "overview-client-" + client.Id);

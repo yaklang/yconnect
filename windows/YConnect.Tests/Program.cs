@@ -309,6 +309,28 @@ internal static class Program
             Assert(store.Models.All(m => YakCoolApi.Protocols.All(m.Protocols.Contains)), "gateway protocols were not expanded");
             await ThrowsAsync(() => store.CreateKey("forbidden")); await ThrowsAsync(() => store.Probe("gpt-5.4", "responses", false)); await store.SignOut(); Assert(store.CurrentKey == null && store.Models.Count == 0, "signout did not clear state");
         });
+        await TestAsync("Redemption boundaries, pending result and confirmed credit with stale balance", async () =>
+        {
+            Assert(YConnectStore.NormalizeRedemptionCode(" \n test-code-1234 \r") == "TEST-CODE-1234", "normalization failed");
+            foreach (var value in new[] { "", new string('A', 11), new string('A', 65), "TEST-CODE-中文", "TEST-CODE-12_", "TEST-CODE-12\n34" })
+                Throws(() => YConnectStore.NormalizeRedemptionCode(value));
+            foreach (var length in new[] { 12, 64 }) Assert(YConnectStore.NormalizeRedemptionCode(new string('a', length)).Length == length, "valid boundary rejected");
+            var api = new RedemptionApi(); var store = new YConnectStore(Env("redemption"), api);
+            await ThrowsAsync(() => store.Redeem("TEST-CODE-1234")); Assert(api.Requests == 0, "signed out request sent");
+            await store.LoginAccount("demo-public-session-only");
+            Assert(!await store.Run(() => store.Redeem("BAD")) && api.Requests == 0, "invalid code sent");
+            api.Status = "pending"; Assert(!await store.Redeem("TEST-CODE-1234"), "pending counted as applied");
+            Assert(!store.Message.Contains("兑换成功"), "pending success feedback");
+            api.Status = "applied"; api.FailRefresh = true;
+            Assert(await store.Redeem("TEST-CODE-1234"), "confirmed credit lost to refresh error");
+            Assert(store.Message.Contains("兑换成功，到账 ¥1.00") && store.Message.Contains("余额暂未同步"), "refresh warning missing");
+            api.FailRefresh = false; api.Reject = true;
+            Assert(!await store.Run(() => store.Redeem("TEST-CODE-1234")), "used code accepted");
+            Assert(store.Error == "兑换码已使用" && store.Message == null && !store.Busy, "stale success feedback or busy state");
+            var requests = api.Requests;
+            await store.LoginKey(DemoApi.Key); await ThrowsAsync(() => store.Redeem("TEST-CODE-1234"));
+            Assert(api.Requests == requests, "API Key mode sent account redemption");
+        });
         await TestAsync("Basic checks issue no paid model request", async () =>
         {
             var store = new YConnectStore(Env("checks"), new DemoApi()); await store.LoginKey(DemoApi.Key); await store.CheckConnection(); Assert(store.Checks.Count == 3 && store.Checks.All(c => c.State == "passed"), "checks failed");
@@ -423,6 +445,25 @@ internal static class Program
         await TestAsync("Bootstrap errors report exact safe stages and never report false readiness", () => LauncherChecks.Failures(root, typeof(Program).Assembly.Location));
     }
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateHardLink(string name, string existing, IntPtr attributes);
+    private sealed class RedemptionApi : IYakCoolApi
+    {
+        private readonly DemoApi inner = new DemoApi();
+        public string Status = "applied"; public bool FailRefresh, Reject; public int Requests;
+        public Task<JObject> Get(string path, string key = null, string cookie = null)
+        {
+            if (FailRefresh && path == "/api/user/dashboard") throw new InvalidOperationException("offline");
+            return inner.Get(path, key, cookie);
+        }
+        public Task<JObject> Send(string path, string method, JObject body, string cookie)
+        {
+            if (path != "/api/user/redeem") return inner.Send(path, method, body, cookie);
+            Requests++; Assert(method == "POST" && cookie == "demo-public-session-only" && body.Text("code") == "TEST-CODE-1234", "redemption request contract");
+            if (Reject) throw new ApiRequestException(409, "兑换码已使用");
+            return Task.FromResult(new JObject { ["status"] = Status, ["amount_cents"] = 100 });
+        }
+        public Task<ModelProbeResult> Probe(string key, string model, string protocol, string check, CancellationToken cancellation = default)
+            => inner.Probe(key, model, protocol, check, cancellation);
+    }
     private sealed class SwitchableApi : IYakCoolApi
     {
         private readonly DemoApi inner = new DemoApi(); public Exception Failure; public JObject Me, Info, ModelData; public ModelProbeResult ProbeResult; public int ProbeCount; public bool WaitForCancellation;

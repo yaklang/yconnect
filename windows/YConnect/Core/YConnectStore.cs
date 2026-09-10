@@ -111,6 +111,11 @@ namespace YConnect.Core
         }
         public string RequireKey() => !string.IsNullOrEmpty(CurrentKey) ? CurrentKey : throw new InvalidOperationException("请先连接 API Key 或选择有效的账户 Key");
         private string RequireAccount() => Mode == "account" && cookie != null ? cookie : throw new InvalidOperationException("此功能需要 YAKCOOL 账户登录，API Key 模式没有账户管理权限");
+        public Func<bool> CaptureAccountSession()
+        {
+            var session = RequireAccount();
+            return () => Mode == "account" && cookie == session;
+        }
         public RechargeSession NewRechargeSession()
         {
             var session = RequireAccount();
@@ -224,12 +229,26 @@ namespace YConnect.Core
             if (id <= 0) throw new InvalidOperationException("Key ID 无效");
             await Api.Send("/api/user/api-keys/" + id, "DELETE", null, RequireAccount()); await Refresh(); Message = "API Key 已删除";
         }
-        public async Task Redeem(string code)
+        public static string NormalizeRedemptionCode(string code)
         {
             code = code?.Replace(" ", "").Trim().ToUpperInvariant();
             if (code == null || !Regex.IsMatch(code, @"\A[A-Z0-9-]{12,64}\z")) throw new InvalidOperationException("兑换码应为 12–64 个字母、数字或连字符");
-            var result = await Api.Send("/api/user/redeem", "POST", new JObject { ["code"] = code }, RequireAccount()); await Refresh();
-            Message = result.Text("status") == "applied" ? "兑换成功" + (result["amount_cents"] != null ? "，到账 ¥" + (result.Number("amount_cents") / 100).ToString("F2") : "") : result.Text("message", "兑换正在处理");
+            return code;
+        }
+        public async Task<bool> Redeem(string code)
+        {
+            var session = RequireAccount();
+            code = NormalizeRedemptionCode(code);
+            var result = await Api.Send("/api/user/redeem", "POST", new JObject { ["code"] = code }, session);
+            if (Mode != "account" || cookie != session) return false;
+            var applied = result.Text("status") == "applied";
+            var message = applied ? "兑换成功" + (result["amount_cents"] != null ? "，到账 ¥" + (result.Number("amount_cents") / 100).ToString("F2") : "")
+                : result.Text("message", result.Text("status") == "pending" ? "兑换正在处理，请稍后使用同一兑换码重试" : "兑换状态：" + result.Text("status"));
+            try { await Refresh(); }
+            catch { message += "；余额暂未同步，请点击刷新核对"; }
+            if (Mode != "account" || cookie != session) return false;
+            Message = message;
+            return applied;
         }
         public void SelectClient(string id) { Clients.Get(id); Preferences.SelectedClient = id; ChooseModel(); SavePreferences(); }
         public void SelectModel(string id)

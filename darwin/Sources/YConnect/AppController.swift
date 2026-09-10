@@ -45,6 +45,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let environment: AppEnvironment
     let store: YConnectStore
     let launchAtLogin: LaunchAtLoginManager
+    private let diagnostics: StartupDiagnostics?
 
     private let widgetPresentation = WidgetPresentationState()
     private let managerNavigation = ManagerNavigation()
@@ -57,6 +58,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var widgetOrigin: WidgetOrigin = .tray
     private var suppressWidgetDismissalUntil = Date.distantPast
     private var hasPresentedWidget = false
+    private var pendingWidgetPresentation: DispatchWorkItem?
 
     private lazy var edgeDock = YConnectEdgeDockController(
         store: store,
@@ -69,7 +71,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case edge(anchor: NSRect, onLeft: Bool)
     }
 
-    init(environment: AppEnvironment = .current(), store: YConnectStore? = nil) {
+    init(environment: AppEnvironment = .current(), store: YConnectStore? = nil, diagnostics: StartupDiagnostics? = nil) {
+        self.diagnostics = diagnostics
         self.environment = environment
         self.store = store ?? YConnectStore(environment: environment)
         launchAtLogin = LaunchAtLoginManager(
@@ -77,29 +80,48 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 && !environment.isDevelopment
         )
         super.init()
+        diagnostics?.record(.controllerReady)
+        if self.store.startupWarning != nil { diagnostics?.record(.clientRegistryUnavailable) }
+        if diagnostics?.previousInterruptedStage != nil {
+            reportStartupWarning("上次运行未正常结束，可能是异常退出、强制结束或系统关机。已保留启动诊断；可在设置中打开诊断文件夹。")
+        }
+        if let warning = diagnostics?.storageWarning { reportStartupWarning(warning) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
         configureStatusItem()
+        diagnostics?.record(.menuBarReady)
         configureSubscriptions()
         edgeDock.update()
         launchAtLogin.enableByDefaultIfNeeded()
+        diagnostics?.record(.loginItemChecked)
+        if let error = launchAtLogin.errorMessage {
+            diagnostics?.record(.loginItemUnavailable)
+            reportStartupWarning(error)
+        }
 
-        let isSmokeRun = CommandLine.arguments.contains("--smoke-edge-widget-focus")
-            || CommandLine.arguments.contains("--smoke-widget-focus")
-            || CommandLine.arguments.contains("--smoke-widget-transient")
-        if CommandLine.arguments.contains("--smoke-edge-widget-focus") {
+        let arguments = CommandLine.arguments
+        let startupSmoke = !StartupPresentation.smokeArguments.isDisjoint(with: arguments)
+        let isWidgetSmoke = !StartupPresentation.widgetSmokeArguments.isDisjoint(with: arguments)
+        let isSmokeRun = startupSmoke || isWidgetSmoke
+        if arguments.contains("--smoke-edge-widget-focus") {
             runEdgeWidgetSmoke()
-        } else if CommandLine.arguments.contains("--smoke-widget-focus")
-                    || CommandLine.arguments.contains("--smoke-widget-transient") {
+        } else if isWidgetSmoke {
             waitForStableTrayAnchor()
-        }
-        if CommandLine.arguments.contains("--show-widget") {
-            DispatchQueue.main.async { [weak self] in self?.showWidget() }
-        }
-        if CommandLine.arguments.contains("--show-manager") {
-            DispatchQueue.main.async { [weak self] in self?.showManager(section: .clients) }
+        } else {
+            let loginItem = startupSmoke
+                ? arguments.contains("--smoke-login-startup")
+                : StartupPresentation.isLoginItem(event: NSAppleEventManager.shared().currentAppleEvent)
+            let surface = StartupPresentation.surface(arguments: arguments, loginItem: loginItem && store.startupWarning == nil)
+            DispatchQueue.main.async { [weak self] in
+                switch surface {
+                case .background: break
+                case .widget: self?.showWidget()
+                case .manager: self?.showManager(section: .clients)
+                }
+            }
+            if startupSmoke { runStartupSmoke(loginItem: loginItem) }
         }
 
         // Smoke runs validate window behavior with an unauthenticated fixture.
@@ -109,7 +131,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) { diagnostics?.record(.cleanExit) }
+
+    private func reportStartupWarning(_ message: String) {
+        store.startupWarning = [store.startupWarning, message].compactMap { $0 }.joined(separator: "\n")
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Edge tabs are panels, not a usable foreground window. Finder reopens
+        // must work even when the menu-bar icon is hidden or crowded out.
+        if let window = managerWindow, window.isVisible || window.isMiniaturized {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            presentManagerWindow()
+        } else {
+            showWidget()
+        }
+        return false
+    }
 
     private func configureStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -129,6 +169,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.$dashboard.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
         store.$businessKeyInfo.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
         store.$accountKeys.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
+        store.$keychainFailureStatus.compactMap { $0 }.sink { [weak self] status in
+            self?.diagnostics?.recordKeychainFailure(status: status)
+        }.store(in: &subscriptions)
+        store.$startupWarning.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$isBusy.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$operationMessage.sink { [weak self] _ in Task { @MainActor in self?.updateWidgetSize() } }.store(in: &subscriptions)
         store.$installedClientIDs.sink { [weak self] _ in Task { @MainActor in self?.refreshPresentedUI() } }.store(in: &subscriptions)
@@ -184,6 +228,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         let show = menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "")
         show.target = self
+        let diagnosticItem = menu.addItem(withTitle: "打开启动诊断文件夹", action: #selector(openDiagnostics), keyEquivalent: "")
+        diagnosticItem.target = self
         let manager = menu.addItem(withTitle: "打开 Y CONNECT", action: #selector(showManagerAction), keyEquivalent: ",")
         manager.target = self
         if store.isAccountMode {
@@ -231,6 +277,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = nil
     }
 
+    @objc private func openDiagnostics() {
+        store.openStartupDiagnostics()
+        if store.errorMessage != nil { showManager(section: .settings) }
+    }
+
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .overview) }
     @objc private func showRechargeAction() { showManager(section: .recharge) }
@@ -275,22 +326,43 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func hideWidget() {
+        pendingWidgetPresentation?.cancel()
+        pendingWidgetPresentation = nil
         widgetPanel?.orderOut(nil)
         edgeDock.setWidgetPresented(false)
     }
 
     func showWidget(focus: Bool = true) {
-        guard let anchor = trayAnchor() else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.showWidget(focus: focus) }
+        pendingWidgetPresentation?.cancel()
+        pendingWidgetPresentation = nil
+        showWidget(focus: focus, remainingTrayAttempts: 10)
+    }
+
+    private func showWidget(focus: Bool, remainingTrayAttempts: Int) {
+        let anchor = trayAnchor()
+        if anchor == nil, remainingTrayAttempts > 0 {
+            let pending = DispatchWorkItem { [weak self] in
+                self?.showWidget(focus: focus, remainingTrayAttempts: remainingTrayAttempts - 1)
+            }
+            pendingWidgetPresentation = pending
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: pending)
             return
         }
+        pendingWidgetPresentation = nil
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        // A hidden/not-yet-created status item must not leave an explicit launch
+        // waiting forever. Use the visible screen's upper-right corner instead.
+        let resolvedAnchor = anchor ?? NSRect(x: screen.visibleFrame.maxX,
+            y: screen.visibleFrame.maxY, width: 0, height: 0)
         let panel = preparedWidgetPanel()
         widgetOrigin = .tray
-        positionWidget(panel, anchor: anchor)
+        positionWidget(panel, anchor: resolvedAnchor)
         presentWidget(panel, focus: focus)
     }
 
     private func showWidgetFromEdge(anchor: NSRect, onLeft: Bool) {
+        pendingWidgetPresentation?.cancel()
+        pendingWidgetPresentation = nil
         let panel = preparedWidgetPanel()
         widgetOrigin = .edge(anchor: anchor, onLeft: onLeft)
         edgeDock.setWidgetPresented(true)
@@ -328,7 +400,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             beginAccountLogin: { [weak self] in self?.beginAccountLogin() },
             openManager: { [weak self] section in self?.showManager(section: section) },
             openAPIKeyCreation: { [weak self] in self?.showAPIKeyCreation() },
-            closeWidget: { [weak self] in self?.hideWidget() }
+            closeWidget: { [weak self] in self?.hideWidget() },
+            openRedemption: { [weak self] in
+                guard let self, self.store.isAccountMode else { return }
+                self.showManager(section: .overview)
+                self.managerNavigation.showingRedemption = true
+            }
         ))
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.cornerRadius = WidgetMetrics.cornerRadius
@@ -349,6 +426,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(panel.contentView)
+        diagnostics?.record(.widgetVisible)
         DispatchQueue.main.async { [weak panel] in
             guard let panel, panel.isVisible else { return }
             NSApp.activate(ignoringOtherApps: true)
@@ -382,6 +460,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        diagnostics?.record(.managerVisible)
     }
 
     private func preparedManagerWindow() -> NSWindow {
@@ -430,6 +509,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func trayAnchor() -> NSRect? {
+        if CommandLine.arguments.contains("--smoke-startup-no-tray") { return nil }
         guard let button = statusItem?.button, let statusWindow = button.window else { return nil }
         button.superview?.layoutSubtreeIfNeeded()
         if let actual = actualWindowFrame(windowNumber: statusWindow.windowNumber) { return actual }
@@ -478,11 +558,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func scheduleWidgetDismissal() {
-        guard !widgetPresentation.isPinned, !store.isBusy, Date() >= suppressWidgetDismissalUntil,
+        guard store.startupWarning == nil, !widgetPresentation.isPinned, !store.isBusy, Date() >= suppressWidgetDismissalUntil,
               widgetPanel?.attachedSheet == nil else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.widgetPanel, panel.isVisible, !panel.isKeyWindow,
-                  !self.widgetPresentation.isPinned, !self.store.isBusy,
+                  self.store.startupWarning == nil, !self.widgetPresentation.isPinned, !self.store.isBusy,
                   panel.attachedSheet == nil, Date() >= self.suppressWidgetDismissalUntil else { return }
             self.hideWidget()
         }
@@ -570,6 +650,39 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func runStartupSmoke(loginItem: Bool) {
+        // Presence checks must not depend on the runner retaining foreground
+        // focus; the separate transient smoke validates dismissal behavior.
+        widgetPresentation.isPinned = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self else { return }
+            if loginItem {
+                self.finishSmoke(name: "login startup stays in background",
+                    passed: self.widgetPanel?.isVisible != true && self.managerWindow?.isVisible != true)
+                return
+            }
+            guard let panel = self.widgetPanel, panel.isVisible,
+                  NSScreen.screens.contains(where: { $0.visibleFrame.contains(panel.frame) }) else {
+                self.finishSmoke(name: "manual startup visible", passed: false); return
+            }
+            print("manual startup: widget visible on screen")
+            self.hideWidget()
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                guard self.widgetPanel?.isVisible == true else {
+                    self.finishSmoke(name: "Finder reopen widget", passed: false); return
+                }
+                print("Finder reopen: widget visible")
+                self.showManager(section: .clients)
+                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.finishSmoke(name: "startup and reopen", passed:
+                        self.managerWindow?.isVisible == true && self.widgetPanel?.isVisible != true)
+                }
+            }
+        }
+    }
+
     private func runEdgeWidgetSmoke() {
         DispatchQueue.main.async { [weak self] in
             guard let self, let anchor = self.edgeDock.openWidgetForSmokeTest() else {
@@ -590,6 +703,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func finishSmoke(name: String, passed: Bool) {
+        diagnostics?.record(.cleanExit)
         print("\(name) smoke \(passed ? "passed" : "failed")")
         fflush(stdout)
         exit(passed ? 0 : 1)
