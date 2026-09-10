@@ -5,6 +5,39 @@ import XCTest
 final class YakCoolAPITests: XCTestCase {
     private let origin = URL(string: "https://unit-test.yakcool.com")!
 
+    func testRedemptionNormalizationAndBoundaryValidation() throws {
+        XCTAssertEqual(try YakCoolAPI.normalizedRedemptionCode(" \n ykc-abcd-1234 \r"), "YKC-ABCD-1234")
+        for length in [12, 64] {
+            XCTAssertEqual(try YakCoolAPI.normalizedRedemptionCode(String(repeating: "a", count: length)), String(repeating: "A", count: length))
+        }
+        for value in ["", " ", String(repeating: "A", count: 11), String(repeating: "A", count: 65), "TEST-CODE-中文", "TEST-CODE-12_", "TEST-CODE-12\n34", "TEST-CODE-12\t34", "TEST-CODE-12\u{0000}"] {
+            XCTAssertThrowsError(try YakCoolAPI.normalizedRedemptionCode(value), value)
+        }
+    }
+
+    func testRedemptionUsesNormalizedCodeAndOnlyAccountCookie() async throws {
+        let transport = MockHTTPTransport { request in
+            return (Data(#"{"status":"applied","amount_cents":100}"#.utf8), TestFixture.httpResponse(for: request, status: 200))
+        }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+        let result = try await api.redeem(code: " test-code-1234 ", cookies: [TestFixture.cookie()])
+        XCTAssertEqual(result.amountCents, 100)
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.path, "/api/user/redeem")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "yakcool_user_session=fake-session-token-for-tests")
+        let body = try JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: String]
+        XCTAssertEqual(body, ["code": "TEST-CODE-1234"])
+    }
+
+    func testInvalidRedemptionNeverReachesNetwork() async throws {
+        let transport = MockHTTPTransport { _ in XCTFail("Invalid redemption reached network"); throw YConnectError.invalidResponse }
+        let api = YakCoolAPI(origin: origin, transport: transport)
+        do { _ = try await api.redeem(code: "BAD", cookies: [TestFixture.cookie()]); XCTFail("Expected validation error") }
+        catch { XCTAssertTrue(transport.requests.isEmpty) }
+    }
+
     func testNormalizedAPIKeyTrimsOnlySurroundingWhitespace() throws {
         XCTAssertEqual(
             try YakCoolAPI.normalizedAPIKey("  \n\tfake-yconnect-key_123.abc\r  "),

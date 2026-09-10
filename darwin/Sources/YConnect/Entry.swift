@@ -21,6 +21,10 @@ enum YConnectMain {
             renderManager(application: application, output: output)
             return
         }
+        if let output = argument(after: "--render-redemption") {
+            renderRedemption(application: application, output: output)
+            return
+        }
         if let output = argument(after: "--render-recharge") {
             renderRecharge(application: application, output: output)
             return
@@ -129,6 +133,17 @@ enum YConnectMain {
             fputs("manager render failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    @MainActor
+    private static func renderRedemption(application: NSApplication, output: String) {
+        application.setActivationPolicy(.prohibited)
+        application.finishLaunching()
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-redemption-preview-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let store = YConnectStore.preview(environment: .preview(at: scratch))
+        do { try render(view: RedemptionView(store: store), size: NSSize(width: 448, height: 230), output: output) }
+        catch { fputs("redemption render failed\n", stderr); exit(1) }
     }
 
     @MainActor

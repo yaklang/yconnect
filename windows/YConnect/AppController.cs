@@ -26,7 +26,7 @@ namespace YConnect
         public Forms.Screen ActiveScreen { get; set; } = Forms.Screen.PrimaryScreen;
         public bool Quitting { get; private set; }
         public bool ModalOpen { get; private set; }
-        public Action<DialogWindow> DialogOpenedForValidation { get; set; }
+        public Action<Window> DialogOpenedForValidation { get; set; }
         private readonly Forms.NotifyIcon tray;
         private readonly DispatcherTimer refresh = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
         private readonly System.Threading.RegisteredWaitHandle activationWait;
@@ -112,7 +112,7 @@ namespace YConnect
             }; login.Show();
         }
         public Task LoginForRecharge() { resumeRechargeAfterLogin = true; return LoginAccount(); }
-        public bool? ShowDialog(DialogWindow dialog)
+        public bool? ShowDialog(Window dialog)
         {
             ModalOpen = true;
             try
@@ -232,6 +232,12 @@ namespace YConnect
             if (!ClientLauncher.CanAutoStart(id) || !Directory.Exists(Store.Preferences.LaunchDirectory)) { ShowManager("clients"); return; }
             if (Store.Clients.Get(id).Compatible(Store.Models).Any(m => m.Id == Store.Preferences.CurrentModel)) Store.SelectModel(Store.Preferences.CurrentModel);
             await LaunchClient(Store.Preferences.LaunchDirectory, Store.Preferences.LaunchTerminal, true);
+        }
+        public async void OpenRedemption()
+        {
+            if (ModalOpen || Store.Mode != "account" || Store.Busy) return;
+            try { ShowManager("overview"); await Manager.RedeemFromOverview(); }
+            catch (Exception error) { Store.SetError(error.Message); }
         }
         public void OpenRecharge()
         {

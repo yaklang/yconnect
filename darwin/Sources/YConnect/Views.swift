@@ -125,6 +125,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
 final class ManagerNavigation: ObservableObject {
     @Published var selection: ManagerSection? = .overview
     @Published private(set) var apiKeyCreationRequestID = 0
+    @Published var showingRedemption = false
 
     var selectedSection: ManagerSection { selection ?? .overview }
 
@@ -219,6 +220,7 @@ struct WidgetView: View {
     let openManager: (ManagerSection) -> Void
     let openAPIKeyCreation: () -> Void
     let closeWidget: () -> Void
+    var openRedemption: () -> Void = {}
     @State private var apiKey = ""
     @State private var copiedEndpointID: String?
     @State private var selectedAccessModelID: String?
@@ -496,6 +498,8 @@ struct WidgetView: View {
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Brand.green)
                 Spacer()
                 if store.isAccountMode {
+                    Button("兑换码", action: openRedemption)
+                        .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
                     Button { openManager(.recharge) } label: { Label("充值", systemImage: "arrow.up.right") }
                         .buttonStyle(SmallPrimaryButtonStyle()).controlSize(.small)
                 }
@@ -1201,9 +1205,13 @@ struct ManagerView: View {
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
+        .sheet(isPresented: $navigation.showingRedemption) {
+            RedemptionView(store: store)
+        }
         .frame(minWidth: 940, minHeight: 640)
         .tint(Brand.accent)
         .onChange(of: store.phase, initial: true) { _, _ in
+            if !store.isAccountMode { navigation.showingRedemption = false }
             if navigation.selection == .recharge && !store.isAccountMode {
                 navigation.selection = .overview
             }
@@ -1221,7 +1229,7 @@ struct ManagerView: View {
             newKeyLabelFocused = true
         }
         .alert("Y CONNECT", isPresented: Binding(
-            get: { store.errorMessage != nil },
+            get: { store.errorMessage != nil && !navigation.showingRedemption },
             set: { if !$0 { store.errorMessage = nil } }
         )) {
             Button("知道了") { store.errorMessage = nil }
@@ -1255,6 +1263,10 @@ struct ManagerView: View {
             }
             Spacer()
             if store.isAuthenticated {
+                if store.isAccountMode {
+                    Button("兑换码") { navigation.showingRedemption = true }
+                        .buttonStyle(SmallSecondaryButtonStyle()).disabled(store.isBusy)
+                }
                 if store.isAccountMode && activeSection != .recharge {
                     Button { navigation.selection = .recharge } label: { Label("充值", systemImage: "creditcard") }
                         .buttonStyle(SmallPrimaryButtonStyle())

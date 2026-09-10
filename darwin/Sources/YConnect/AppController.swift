@@ -328,7 +328,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             beginAccountLogin: { [weak self] in self?.beginAccountLogin() },
             openManager: { [weak self] section in self?.showManager(section: section) },
             openAPIKeyCreation: { [weak self] in self?.showAPIKeyCreation() },
-            closeWidget: { [weak self] in self?.hideWidget() }
+            closeWidget: { [weak self] in self?.hideWidget() },
+            openRedemption: { [weak self] in
+                guard let self, self.store.isAccountMode else { return }
+                self.showManager(section: .overview)
+                self.managerNavigation.showingRedemption = true
+            }
         ))
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.cornerRadius = WidgetMetrics.cornerRadius

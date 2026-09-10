@@ -508,24 +508,40 @@ final class YConnectStore: ObservableObject {
         }
     }
 
+    /// True only when the server confirms that the credit was applied.
     func redeem(code: String) async -> Bool {
-        guard phase == .account else { return false }
+        guard phase == .account, !isBusy else { return false }
+        let cookies = webCookies
+        let generation = loginGeneration
         isBusy = true
         errorMessage = nil
+        operationMessage = nil
         defer { isBusy = false }
         do {
-            let result = try await api.redeem(code: code, cookies: webCookies)
-            try await refreshAccount()
+            let result = try await api.redeem(code: code, cookies: cookies)
+            guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+            let applied = result.status == "applied"
+            let message: String
             switch result.status {
             case "applied":
-                operationMessage = result.amountCents.map { "兑换成功，到账 ¥\(String(format: "%.2f", Double($0) / 100))" } ?? "兑换成功"
+                message = result.amountCents.map { "兑换成功，到账 ¥\(String(format: "%.2f", Double($0) / 100))" } ?? "兑换成功"
             case "pending":
-                operationMessage = result.message ?? "兑换正在处理，请稍后使用同一兑换码重试"
+                message = result.message ?? "兑换正在处理，请稍后使用同一兑换码重试"
             default:
-                operationMessage = result.message ?? "兑换状态：\(result.status)"
+                message = result.message ?? "兑换状态：\(result.status)"
             }
-            return true
+            // A failed balance refresh must not turn confirmed credit into a failed redemption.
+            do {
+                try await refreshAccount()
+                guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+                operationMessage = message
+            } catch {
+                guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
+                operationMessage = message + "；余额暂未同步，请点击刷新核对"
+            }
+            return applied
         } catch {
+            guard phase == .account, webCookies == cookies, loginGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }

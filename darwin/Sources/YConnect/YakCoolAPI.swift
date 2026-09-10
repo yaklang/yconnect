@@ -148,14 +148,17 @@ final class YakCoolAPI: RechargeAPI {
         )
     }
 
-    func redeem(code: String, cookies: [StoredWebCookie]) async throws -> StatusResponse {
-        let value = code
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: " ", with: "")
-            .uppercased()
-        guard (12...64).contains(value.count) else {
-            throw YConnectError.invalidCredential("兑换码长度应为 12 至 64 个字符")
+    static func normalizedRedemptionCode(_ code: String) throws -> String {
+        let value = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "").uppercased()
+        guard value.range(of: "\\A[A-Z0-9-]{12,64}\\z", options: .regularExpression) != nil else {
+            throw YConnectError.invalidCredential("兑换码应为 12–64 个字母、数字或连字符")
         }
+        return value
+    }
+
+    func redeem(code: String, cookies: [StoredWebCookie]) async throws -> StatusResponse {
+        let value = try Self.normalizedRedemptionCode(code)
         return try await send(
             "/api/user/redeem",
             method: "POST",
