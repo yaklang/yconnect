@@ -207,8 +207,11 @@ namespace YConnect.Validation
             foreach (var count in new[] { 0, 1, 3, 4, 5 })
             {
                 app.Store.Environment.SetPreviewClients(ids.Take(count).ToArray()); app.ShowWidget(); app.ShowManager("clients"); await Idle();
+                // Feedback timers can replace the content just before the async
+                // continuation resumes; materialize the new WPF visual tree first.
+                app.Widget.UpdateLayout(); app.Manager.UpdateLayout();
                 var visible = All<Button>(app.Widget).Count(b => AutomationProperties.GetAutomationId(b).StartsWith("widget-client-"));
-                Assert(visible == (count > 4 ? 3 : count), "widget installed count " + count);
+                Assert(visible == (count > 4 ? 3 : count), "widget installed count " + count + "; visible=" + visible);
                 Assert((FindOptional<Button>(app.Widget, "widget-more-clients") != null) == (count > 4), "More threshold");
                 Assert(All<Button>(app.Manager).Count(b => AutomationProperties.GetAutomationId(b).StartsWith("client-select-")) == count, "manager leaked uninstalled client");
                 Capture(app.Widget, "installed-" + count + "-widget.png");
