@@ -83,7 +83,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         super.init()
         updates.reportError = { [weak self] message in self?.store.errorMessage = message }
-        updates.canInstall = { [weak self] in self?.store.isBusy == false && self?.managerWindow?.attachedSheet == nil }
+        updates.canInstall = { [weak self] in self?.canInstallUpdate ?? false }
         diagnostics?.record(.controllerReady)
         if self.store.startupWarning != nil { diagnostics?.record(.clientRegistryUnavailable) }
         if diagnostics?.previousInterruptedStage != nil {
@@ -142,8 +142,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.startupWarning = [store.startupWarning, message].compactMap { $0 }.joined(separator: "\n")
     }
 
+    private var canInstallUpdate: Bool {
+        !store.isBusy && store.rechargeSession?.isBusy != true
+            && managerWindow?.attachedSheet == nil && widgetPanel?.attachedSheet == nil
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if updates.installing && (store.isBusy || managerWindow?.attachedSheet != nil) {
+        if updates.installing && !canInstallUpdate {
             store.errorMessage = "请先完成当前操作，再点击安装更新。"
             return .terminateCancel
         }

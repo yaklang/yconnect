@@ -50,7 +50,7 @@ namespace YConnect.Core
         private readonly HttpClient http;
         private bool initialized, disposed;
         private volatile bool canExit;
-        public void RefreshShutdownState() { canExit = !app.Store.Busy && !app.ModalOpen && !app.Quitting; }
+        public void RefreshShutdownState() { canExit = !app.Store.Busy && !app.ModalOpen && !app.Quitting && !app.Launches.Attempts.Any(a => a.State == "pending"); }
         // Native callbacks must stay rooted for the DLL's entire lifetime.
         private Callback onError, onShutdown, onCancelled, onNoUpdate;
         private CanShutdown canShutdown;
@@ -94,7 +94,8 @@ namespace YConnect.Core
         public void Install()
         {
             if (!Enabled || Installing || disposed) return;
-            if (app.Store.Busy || app.ModalOpen) { app.Store.SetError("请先完成当前操作，再更新客户端。"); return; }
+            RefreshShutdownState();
+            if (!canExit) { app.Store.SetError("请先完成当前操作或等待 Agent 启动，再更新客户端。"); return; }
             // Portable copies are deliberately migrated through the installer;
             // never silently replace an arbitrary folder with an installed app.
             if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "unins000.exe")) && !app.Confirm("安装新版 Y CONNECT？", "当前为便携版。将安装到本机的应用目录，保留账户数据与客户端配置；旧便携目录不会被删除。", "下载并安装")) return;
