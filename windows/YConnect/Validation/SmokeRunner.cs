@@ -87,7 +87,7 @@ namespace YConnect.Validation
                 await Click(app.Manager, "nav-models"); Find<TextBox>(app.Manager, "model-search").Text = "Claude"; await Idle();
                 Assert(All<TextBlock>(app.Manager).Any(t => t.Text.Contains("Claude Sonnet")), "model search did not return Claude"); Capture(app.Manager, "04-model-search.png");
                 await Click(app.Manager, "model-filter-responses"); await Idle(); Assert(All<TextBlock>(app.Manager).Any(t => t.Text.Contains("Claude Sonnet")), "gateway-compatible model disappeared from Responses filter");
-                await Click(app.Manager, "nav-clients"); await Click(app.Manager, "client-select-codex"); await Idle();
+                await Click(app.Manager, "nav-clients"); await VerifyClientPaddingClicks(); await Click(app.Manager, "client-select-codex"); await Idle();
                 var model = Find<ComboBox>(app.Manager, "client-model"); Assert(model.Items.Cast<AvailableModel>().All(m => m.Protocols.Contains("responses")), "Codex picker included incompatible model");
                 Capture(app.Manager, "05-clients-codex.png");
                 app.DialogOpenedForValidation = dialog => dialog.Dispatcher.BeginInvoke(new Action(() => { Capture(dialog, "06-configuration-preview.png"); Invoke(Find<Button>(dialog, "dialog-confirm")); }), DispatcherPriority.Background);
@@ -150,6 +150,22 @@ namespace YConnect.Validation
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(output, "ui-results.txt"), string.Join("\n", steps) + "\nFAIL: " + e); try { Capture(app.Manager, "failure-manager.png"); Capture(app.Widget, "failure-widget.png"); } catch { } return false; }
             finally { app.DialogOpenedForValidation = null; }
+        }
+        private static async Task VerifyClientPaddingClicks()
+        {
+            app.Widget.Hide(); app.Edge.CloseQuick(); app.Manager.Activate(); await Idle();
+            foreach (var id in new[] { "codex", "grok-build" })
+            {
+                for (var edge = 0; edge < 4; edge++)
+                {
+                    await Click(app.Manager, "client-select-" + (id == "codex" ? "grok-build" : "codex"));
+                    var button = Find<Button>(app.Manager, "client-select-" + id);
+                    var points = new[] { new Point(3, 24), new Point(button.ActualWidth - 3, 24), new Point(button.ActualWidth / 2, 3), new Point(button.ActualWidth / 2, 45) };
+                    await NativeInput.Click(app.Manager, button, points[edge]); await Idle();
+                    Assert(app.Store.Preferences.SelectedClient == id, "Client padding click did not select " + id + " at edge " + edge);
+                }
+            }
+            steps.Add("Native mouse clicks on all four padding edges select Codex and Grok Build.");
         }
         private static async Task VerifyDesktopUx()
         {

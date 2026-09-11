@@ -55,9 +55,9 @@ namespace YConnect.Validation
                 if (Math.Abs(current.X - (x + dx)) < 3 && Math.Abs(current.Y - (y + dy)) < 3) SetCursorPos(original.X, original.Y);
             }
         }
-        internal static async Task Click(Window window, FrameworkElement source)
+        internal static async Task Click(Window window, FrameworkElement source, Point? localPoint = null)
         {
-            var point = source.PointToScreen(new Point(source.ActualWidth / 2, source.ActualHeight / 2));
+            var point = source.PointToScreen(localPoint ?? new Point(source.ActualWidth / 2, source.ActualHeight / 2));
             var x = (int)point.X; var y = (int)point.Y; Check(window, x, y);
             SetCursorPos(x, y); await Task.Delay(60); Check(window, x, y);
             mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);

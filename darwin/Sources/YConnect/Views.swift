@@ -1561,25 +1561,9 @@ struct ManagerView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 10)], spacing: 10) {
                     ForEach(store.installedClientDescriptors) { client in
-                    Button { store.selectClientForManagement(client.id) } label: {
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack {
-                                Image(systemName: client.symbol).font(.system(size: 16, weight: .semibold))
-                                Spacer()
-                                if client.id == store.selectedClientID {
-                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.accent)
-                                }
-                            }
-                            Text(client.shortName).font(.system(size: 13, weight: .semibold))
-                            Text(client.protocolSummary).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(2)
+                        ClientSelectionCard(client: client, isSelected: client.id == store.selectedClientID) {
+                            store.selectClientForManagement(client.id)
                         }
-                        .padding(11)
-                        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .background(client.id == store.selectedClientID ? Brand.accent.opacity(0.10) : Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(client.id == store.selectedClientID ? Brand.accent.opacity(0.55) : Color.primary.opacity(0.08)))
                     }
                 }
             }

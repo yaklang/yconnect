@@ -51,6 +51,21 @@ internal static class LayoutChecks
         typeof(ConnectionPanel).GetField("expanded", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(connection, value);
         widget.Render();
     }
+    private static void VerifyClientHitRegions(FrameworkElement root)
+    {
+        var buttons = All<Button>(root).Where(x => AutomationProperties.GetAutomationId(x).StartsWith("client-select-")).ToArray();
+        Require(buttons.Length == 8, "All installed client selectors must be present.");
+        Require(buttons.All(x => Math.Abs(x.ActualHeight - 48) < .1) && buttons.Select(x => x.ActualWidth).Distinct().Count() == 1, "Client selectors must have equal widths and 48 DIP heights.");
+        foreach (var button in buttons)
+        {
+            foreach (var point in new[] { new Point(3, 24), new Point(button.ActualWidth - 3, 24), new Point(button.ActualWidth / 2, 3), new Point(button.ActualWidth / 2, 45) })
+            {
+                var hit = VisualTreeHelper.HitTest(button, point)?.VisualHit;
+                while (hit != null && hit != button) hit = VisualTreeHelper.GetParent(hit);
+                Require(hit == button, "Client padding must hit its selector: " + AutomationProperties.GetAutomationId(button) + " " + point);
+            }
+        }
+    }
     public static void Run(string output)
     {
         Exception failure = null;
@@ -116,9 +131,8 @@ internal static class LayoutChecks
                 Layout(root, 1080, 760); Require(clientGrid.ColumnDefinitions.Count == 2, "Client grid must return to two columns when widened.");
                 manager.Navigate("clients"); Layout(root, 1080, 760);
                 Find<Button>(root, "client-launch"); Find<Button>(root, "client-terminal"); Find<TextBox>(root, "launch-directory"); Find<ComboBox>(root, "launch-terminal");
-                var clientButtons = All<Button>(root).Where(x => AutomationProperties.GetAutomationId(x).StartsWith("client-select-")).ToArray();
-                Require(clientButtons.Length > 0 && clientButtons.All(x => x.ActualHeight >= 32) && clientButtons.Select(x => x.ActualHeight).Distinct().Count() == 1, "Client rows must be laid out with even heights.");
-                Save(root, output, theme + "-clients"); Layout(root, 850, 640); Save(root, output, theme + "-clients-narrow");
+                VerifyClientHitRegions(root);
+                Save(root, output, theme + "-clients"); Layout(root, 850, 640); VerifyClientHitRegions(root); Save(root, output, theme + "-clients-narrow");
                 manager.Navigate("models"); Layout(root, 1080, 760); Find<Button>(root, "model-filter-responses"); Find<Button>(root, "model-filter-anthropic_messages"); Find<Button>(root, "model-filter-chat_completions"); Save(root, output, theme + "-models");
                 manager.Navigate("checks"); Layout(root, 1080, 760); Find<Button>(root, "probe-quality"); Require(All<TextBlock>(root).Any(x => x.Text == "模型能力画像"), "Quality profile results missing."); Save(root, output, theme + "-checks");
                 // Compare copy feedback in isolation. The preceding quality/payment
