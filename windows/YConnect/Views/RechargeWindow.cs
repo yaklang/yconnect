@@ -125,6 +125,16 @@ namespace YConnect.Views
                 panel.Children.Add(Ui.Gap(14));
                 if (!session.HasOrder || editing)
                 {
+                    panel.Children.Add(Ui.Card(Ui.Stack(
+                        Ui.SmallButton("优惠信息同 YAKCOOL 官网 ↗", "recharge-offer-website", () =>
+                        {
+                            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://yakcool.com/capabilities#usage-pack") { UseShellExecute = true }); }
+                            catch (Exception ex) { error = "无法打开官网：" + YakCoolApi.Redact(ex.Message); Render(); }
+                        }),
+                        Ui.Gap(6),
+                        Ui.Text("充值赠金政策同步官网，具体细则以官网通知为准。", 11, "Muted")
+                    ), 12, "AccentSoft"));
+                    panel.Children.Add(Ui.Gap(14));
                     panel.Tag = "form";
                     panel.Children.Add(Ui.Between(Ui.Text("充值金额", 13, "Ink", true), Ui.Text("¥1–¥10,000", 11, "Muted"))); panel.Children.Add(Ui.Gap(8));
                     var input = Ui.Id(new TextBox { Text = amount, FontSize = 24, Padding = new Thickness(12, 8, 12, 8), MaxLength = 8, IsEnabled = !busy }, "recharge-amount");

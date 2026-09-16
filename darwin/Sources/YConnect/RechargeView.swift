@@ -22,6 +22,23 @@ struct RechargeView: View {
                 Text(balance).font(.system(size: 28, weight: .semibold, design: .rounded))
             }.padding(18).background(Brand.accent.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
 
+            if session.orderNo == nil || editing {
+                VStack(alignment: .leading, spacing: 6) {
+                    Link(destination: URL(string: "https://yakcool.com/capabilities#usage-pack")!) {
+                        Label("优惠信息同 YAKCOOL 官网", systemImage: "arrow.up.right")
+                            .font(.callout.weight(.medium))
+                    }
+                    .tint(Brand.accent)
+                    .accessibilityIdentifier("recharge-offer-website")
+                    Text("充值赠金政策同步官网，具体细则以官网通知为准。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14).background(Brand.accent.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
             if let error = session.errorMessage {
                 Label(error, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red)
             }
