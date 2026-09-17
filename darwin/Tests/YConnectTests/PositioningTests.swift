@@ -142,4 +142,12 @@ final class PositioningTests: XCTestCase {
             NSRect(x: 101.01, y: 200, width: 360, height: 420)
         ))
     }
+
+    func testTrayWindowNumberOutsideQuartzRangeHasNoQuartzID() {
+        XCTAssertEqual(WidgetPositioning.quartzWindowID(for: 1), 1)
+        XCTAssertEqual(WidgetPositioning.quartzWindowID(for: Int(CGWindowID.max)), CGWindowID.max)
+        XCTAssertNil(WidgetPositioning.quartzWindowID(for: 4_294_967_296))
+        XCTAssertNil(WidgetPositioning.quartzWindowID(for: 0))
+        XCTAssertNil(WidgetPositioning.quartzWindowID(for: -1))
+    }
 }
