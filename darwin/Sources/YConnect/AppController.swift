@@ -5,6 +5,12 @@ import SwiftUI
 enum WidgetPositioning {
     static let margin: CGFloat = 8
 
+    static func quartzWindowID(for windowNumber: Int) -> CGWindowID? {
+        guard windowNumber > 0 else { return nil }
+        // AppKit may return a 64-bit status-bar window number that Quartz cannot represent.
+        return CGWindowID(exactly: windowNumber)
+    }
+
     static func frame(size: NSSize, trayAnchor: NSRect, visibleFrame: NSRect) -> NSRect {
         let fittedSize = constrainedSize(size, visibleFrame: visibleFrame)
         let preferredX = trayAnchor.midX - fittedSize.width / 2
@@ -544,8 +550,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func actualWindowFrame(windowNumber: Int) -> NSRect? {
-        guard windowNumber > 0,
-              let rows = CGWindowListCopyWindowInfo([.optionIncludingWindow, .excludeDesktopElements], CGWindowID(windowNumber)) as? [[String: Any]],
+        guard let windowID = WidgetPositioning.quartzWindowID(for: windowNumber),
+              let rows = CGWindowListCopyWindowInfo([.optionIncludingWindow, .excludeDesktopElements], windowID) as? [[String: Any]],
               let bounds = rows.first?[kCGWindowBounds as String] as? [String: Any],
               let x = (bounds["X"] as? NSNumber)?.doubleValue,
               let y = (bounds["Y"] as? NSNumber)?.doubleValue,
