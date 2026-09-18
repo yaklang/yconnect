@@ -716,33 +716,45 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Presence checks must not depend on the runner retaining foreground
         // focus; the separate transient smoke validates dismissal behavior.
         widgetPresentation.isPinned = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             if loginItem {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
                 self.finishSmoke(name: "login startup stays in background",
                     passed: self.widgetPanel?.isVisible != true && self.managerWindow?.isVisible != true)
                 return
             }
-            guard let panel = self.widgetPanel, panel.isVisible,
-                  NSScreen.screens.contains(where: { $0.visibleFrame.contains(panel.frame) }) else {
+            // Missing tray anchors retry asynchronously before the screen fallback.
+            // Wait for actual state rather than racing a fixed 0.8-second timer on CI.
+            let startupVisible = await self.waitForSmokeState {
+                guard let panel = self.widgetPanel, panel.isVisible else { return false }
+                return NSScreen.screens.contains(where: { $0.visibleFrame.contains(panel.frame) })
+            }
+            guard startupVisible else {
                 self.finishSmoke(name: "manual startup visible", passed: false); return
             }
             print("manual startup: widget visible on screen")
             self.hideWidget()
             _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                guard self.widgetPanel?.isVisible == true else {
-                    self.finishSmoke(name: "Finder reopen widget", passed: false); return
-                }
-                print("Finder reopen: widget visible")
-                self.showManager(section: .clients)
-                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.finishSmoke(name: "startup and reopen", passed:
-                        self.managerWindow?.isVisible == true && self.widgetPanel?.isVisible != true)
-                }
+            guard await self.waitForSmokeState({ self.widgetPanel?.isVisible == true }) else {
+                self.finishSmoke(name: "Finder reopen widget", passed: false); return
             }
+            print("Finder reopen: widget visible")
+            self.showManager(section: .clients)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            let managerVisible = await self.waitForSmokeState {
+                self.managerWindow?.isVisible == true && self.widgetPanel?.isVisible != true
+            }
+            self.finishSmoke(name: "startup and reopen", passed: managerVisible)
         }
+    }
+
+    private func waitForSmokeState(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return condition()
     }
 
     private func runEdgeWidgetSmoke() {
