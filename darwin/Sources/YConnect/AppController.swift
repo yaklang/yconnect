@@ -5,6 +5,12 @@ import SwiftUI
 enum WidgetPositioning {
     static let margin: CGFloat = 8
 
+    static func quartzWindowID(for windowNumber: Int) -> CGWindowID? {
+        guard windowNumber > 0 else { return nil }
+        // AppKit may return a 64-bit status-bar window number that Quartz cannot represent.
+        return CGWindowID(exactly: windowNumber)
+    }
+
     static func frame(size: NSSize, trayAnchor: NSRect, visibleFrame: NSRect) -> NSRect {
         let fittedSize = constrainedSize(size, visibleFrame: visibleFrame)
         let preferredX = trayAnchor.midX - fittedSize.width / 2
@@ -108,8 +114,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let arguments = CommandLine.arguments
         let startupSmoke = !StartupPresentation.smokeArguments.isDisjoint(with: arguments)
         let isWidgetSmoke = !StartupPresentation.widgetSmokeArguments.isDisjoint(with: arguments)
-        let isSmokeRun = startupSmoke || isWidgetSmoke
-        if arguments.contains("--smoke-edge-widget-focus") {
+        let isSmokeRun = !StartupPresentation.allSmokeArguments.isDisjoint(with: arguments)
+        if arguments.contains("--smoke-reopen") {
+            runReopenSmoke()
+        } else if arguments.contains("--smoke-edge-widget-focus") {
             runEdgeWidgetSmoke()
         } else if isWidgetSmoke {
             waitForStableTrayAnchor()
@@ -160,8 +168,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Edge tabs are panels, not a usable foreground window. Finder reopens
         // must work even when the menu-bar icon is hidden or crowded out.
-        if let window = managerWindow, window.isVisible || window.isMiniaturized {
-            if window.isMiniaturized { window.deminiaturize(nil) }
+        if managerWindow != nil {
             presentManagerWindow()
         } else {
             showWidget()
@@ -484,6 +491,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hideWidget()
         let window = preparedManagerWindow()
         NSApp.setActivationPolicy(.regular)
+        if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         diagnostics?.record(.managerVisible)
@@ -544,8 +552,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func actualWindowFrame(windowNumber: Int) -> NSRect? {
-        guard windowNumber > 0,
-              let rows = CGWindowListCopyWindowInfo([.optionIncludingWindow, .excludeDesktopElements], CGWindowID(windowNumber)) as? [[String: Any]],
+        guard let windowID = WidgetPositioning.quartzWindowID(for: windowNumber),
+              let rows = CGWindowListCopyWindowInfo([.optionIncludingWindow, .excludeDesktopElements], windowID) as? [[String: Any]],
               let bounds = rows.first?[kCGWindowBounds as String] as? [String: Any],
               let x = (bounds["X"] as? NSNumber)?.doubleValue,
               let y = (bounds["Y"] as? NSNumber)?.doubleValue,
@@ -677,37 +685,76 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func runReopenSmoke() {
+        Task { @MainActor [weak self] in
+            guard let self else { exit(1) }
+            self.showManager(section: .clients)
+            self.managerWindow?.close()
+            let wasClosed = self.managerWindow?.isVisible == false
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            let reopened = wasClosed && self.managerWindow?.isVisible == true
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.managerWindow?.miniaturize(nil)
+            for _ in 0..<50 {
+                if self.managerWindow?.isMiniaturized == true { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let wasMinimized = self.managerWindow?.isMiniaturized == true
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            for _ in 0..<50 {
+                if self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
+            print("reopen smoke: closed=\(reopened) minimized=\(restored)")
+            self.finishSmoke(name: "manager reopen", passed: reopened && restored)
+        }
+    }
+
     private func runStartupSmoke(loginItem: Bool) {
         // Presence checks must not depend on the runner retaining foreground
         // focus; the separate transient smoke validates dismissal behavior.
         widgetPresentation.isPinned = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             if loginItem {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
                 self.finishSmoke(name: "login startup stays in background",
                     passed: self.widgetPanel?.isVisible != true && self.managerWindow?.isVisible != true)
                 return
             }
-            guard let panel = self.widgetPanel, panel.isVisible,
-                  NSScreen.screens.contains(where: { $0.visibleFrame.contains(panel.frame) }) else {
+            // Missing tray anchors retry asynchronously before the screen fallback.
+            // Wait for actual state rather than racing a fixed 0.8-second timer on CI.
+            let startupVisible = await self.waitForSmokeState {
+                guard let panel = self.widgetPanel, panel.isVisible else { return false }
+                return NSScreen.screens.contains(where: { $0.visibleFrame.contains(panel.frame) })
+            }
+            guard startupVisible else {
                 self.finishSmoke(name: "manual startup visible", passed: false); return
             }
             print("manual startup: widget visible on screen")
             self.hideWidget()
             _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                guard self.widgetPanel?.isVisible == true else {
-                    self.finishSmoke(name: "Finder reopen widget", passed: false); return
-                }
-                print("Finder reopen: widget visible")
-                self.showManager(section: .clients)
-                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.finishSmoke(name: "startup and reopen", passed:
-                        self.managerWindow?.isVisible == true && self.widgetPanel?.isVisible != true)
-                }
+            guard await self.waitForSmokeState({ self.widgetPanel?.isVisible == true }) else {
+                self.finishSmoke(name: "Finder reopen widget", passed: false); return
             }
+            print("Finder reopen: widget visible")
+            self.showManager(section: .clients)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            let managerVisible = await self.waitForSmokeState {
+                self.managerWindow?.isVisible == true && self.widgetPanel?.isVisible != true
+            }
+            self.finishSmoke(name: "startup and reopen", passed: managerVisible)
         }
+    }
+
+    private func waitForSmokeState(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return condition()
     }
 
     private func runEdgeWidgetSmoke() {

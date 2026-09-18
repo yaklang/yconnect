@@ -416,6 +416,52 @@ final class YConnectStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testModelRefreshCancellationIsSilentAndKeepsExistingModels() async throws {
+        let context = try makeContext()
+        defer { context.remove() }
+        let transport = RefreshCancellationTransport()
+        let store = YConnectStore(environment: context.environment,
+            api: YakCoolAPI(origin: origin, transport: transport), credentialVault: MemoryCredentialVault())
+        await store.signIn(apiKey: "fixture-key")
+        XCTAssertEqual(store.phase, .apiKey)
+        let originalModels = store.businessKeyModels.map(\.id)
+        XCTAssertFalse(originalModels.isEmpty)
+        for error: Error in [CancellationError(), URLError(.cancelled),
+                            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)] {
+            transport.failure = error
+            await store.refreshConfigurationModels()
+            XCTAssertNil(store.errorMessage)
+            XCTAssertFalse(store.isBusy)
+            XCTAssertEqual(store.businessKeyModels.map(\.id), originalModels)
+        }
+        transport.failure = nil
+        transport.waitForCancellation = true
+        let started = expectation(description: "refresh request started")
+        transport.onRefresh = { started.fulfill() }
+        let task = Task { await store.refreshConfigurationModels() }
+        await fulfillment(of: [started], timeout: 2)
+        task.cancel()
+        await task.value
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.isBusy)
+        XCTAssertEqual(store.businessKeyModels.map(\.id), originalModels)
+
+        // A transport that returns successfully after cancellation must not replace the catalog.
+        transport.waitForCancellation = false
+        transport.onRefresh = { withUnsafeCurrentTask { $0?.cancel() } }
+        let lateTask = Task { await store.refreshConfigurationModels() }
+        await lateTask.value
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.businessKeyModels.map(\.id), originalModels)
+
+        transport.onRefresh = nil
+        transport.failure = URLError(.notConnectedToInternet)
+        await store.refreshConfigurationModels()
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor
     private func makeStore(
         context: TemporaryStoreContext,
         transport: StoreFlowTransport,
@@ -750,5 +796,24 @@ private final class StoreFlowTransport: HTTPTransport {
         lock.lock()
         defer { lock.unlock() }
         return try operation()
+    }
+}
+
+private final class RefreshCancellationTransport: HTTPTransport {
+    private let base = StoreFlowTransport()
+    var failure: Error?
+    var waitForCancellation = false
+    var onRefresh: (() -> Void)?
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        if request.url?.path == "/api/key/models" {
+            if let failure { throw failure }
+            onRefresh?()
+            if waitForCancellation { try await Task.sleep(nanoseconds: 30_000_000_000) }
+            if onRefresh != nil {
+                return (Data(#"{"schema_version":1,"object":"list","data":[],"queried_at":"2026-09-18T00:00:00Z"}"#.utf8), TestFixture.httpResponse(for: request, status: 200))
+            }
+        }
+        return try await base.data(for: request)
     }
 }

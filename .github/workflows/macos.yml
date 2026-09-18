@@ -108,6 +108,7 @@ jobs:
           "$BIN" --smoke-login-startup
           "$BIN" --smoke-startup-no-tray
           "$BIN" --smoke-startup-degraded
+          "$BIN" --smoke-reopen
 
       - name: Ensure ImageMagick
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
@@ -217,3 +218,41 @@ jobs:
             dist/YConnectDev-*-darwin-*.dmg
           if-no-files-found: error
           retention-days: 14
+
+  tahoe-compatibility:
+    name: Tahoe compatibility (${{ matrix.os }})
+    needs: build-test-render
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, macos-26-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select OpenSSL 3
+        run: echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Build and test against Tahoe SDK
+        run: |
+          sw_vers
+          swift build --package-path darwin --configuration release -Xswiftc -warnings-as-errors
+          swift test --package-path darwin -Xswiftc -warnings-as-errors
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-macos
+          path: release
+      - name: Test packaged universal app on Tahoe
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/yconnect-mount"
+          hdiutil attach release/*.dmg -mountpoint "$RUNNER_TEMP/yconnect-mount" -nobrowse -readonly
+          trap 'hdiutil detach "$RUNNER_TEMP/yconnect-mount" >/dev/null 2>&1 || true' EXIT
+          ditto "$RUNNER_TEMP/yconnect-mount/Y CONNECT.app" "$RUNNER_TEMP/Y CONNECT.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/Y CONNECT.app"
+          python3 script/test-macos-startup.py "$RUNNER_TEMP/Y CONNECT.app" --disposable-account --output artifacts/startup
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yconnect-tahoe-${{ matrix.os }}
+          path: artifacts/startup
+          if-no-files-found: warn
