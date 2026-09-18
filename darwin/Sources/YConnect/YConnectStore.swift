@@ -678,12 +678,14 @@ final class YConnectStore: ObservableObject {
         defer { isBusy = false }
         do {
             let models = try await api.keyModels(apiKey: key).data
+            try Task.checkCancellation()
             guard currentAPIKeyValue == key else { return }
             businessKeyModels = Self.deduplicatedBusinessKeyModels(models)
             // The model catalog belongs to the credential, while compatibility
             // belongs to the client that is current when the response arrives.
             selectCompatibleModelIfNeeded()
         } catch {
+            guard !AsyncCancellation.isExpected(error) else { return }
             errorMessage = error.localizedDescription
         }
     }

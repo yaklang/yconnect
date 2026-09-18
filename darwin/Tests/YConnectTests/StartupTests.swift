@@ -17,6 +17,10 @@ final class StartupTests: XCTestCase {
         event.setParam(NSAppleEventDescriptor(enumCode: keyAELaunchedAsLogInItem), forKeyword: keyAEPropData)
         XCTAssertTrue(StartupPresentation.isLoginItem(event: event))
         XCTAssertFalse(StartupPresentation.isLoginItem(event: nil))
+        event.setParam(NSAppleEventDescriptor(enumCode: keyAELaunchedAsServiceItem), forKeyword: keyAEPropData)
+        XCTAssertTrue(StartupPresentation.isLoginItem(event: event))
+        XCTAssertEqual(StartupPresentation.surface(arguments: ["--background"], loginItem: false), .background)
+        XCTAssertEqual(StartupPresentation.surface(arguments: ["--background", "--show-manager"], loginItem: true), .manager)
     }
 
     @MainActor

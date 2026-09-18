@@ -114,8 +114,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let arguments = CommandLine.arguments
         let startupSmoke = !StartupPresentation.smokeArguments.isDisjoint(with: arguments)
         let isWidgetSmoke = !StartupPresentation.widgetSmokeArguments.isDisjoint(with: arguments)
-        let isSmokeRun = startupSmoke || isWidgetSmoke
-        if arguments.contains("--smoke-edge-widget-focus") {
+        let isSmokeRun = !StartupPresentation.allSmokeArguments.isDisjoint(with: arguments)
+        if arguments.contains("--smoke-reopen") {
+            runReopenSmoke()
+        } else if arguments.contains("--smoke-edge-widget-focus") {
             runEdgeWidgetSmoke()
         } else if isWidgetSmoke {
             waitForStableTrayAnchor()
@@ -166,8 +168,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Edge tabs are panels, not a usable foreground window. Finder reopens
         // must work even when the menu-bar icon is hidden or crowded out.
-        if let window = managerWindow, window.isVisible || window.isMiniaturized {
-            if window.isMiniaturized { window.deminiaturize(nil) }
+        if managerWindow != nil {
             presentManagerWindow()
         } else {
             showWidget()
@@ -490,6 +491,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hideWidget()
         let window = preparedManagerWindow()
         NSApp.setActivationPolicy(.regular)
+        if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         diagnostics?.record(.managerVisible)
@@ -680,6 +682,33 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     }
                 }
             }
+        }
+    }
+
+    private func runReopenSmoke() {
+        Task { @MainActor [weak self] in
+            guard let self else { exit(1) }
+            self.showManager(section: .clients)
+            self.managerWindow?.close()
+            let wasClosed = self.managerWindow?.isVisible == false
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            let reopened = wasClosed && self.managerWindow?.isVisible == true
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.managerWindow?.miniaturize(nil)
+            for _ in 0..<50 {
+                if self.managerWindow?.isMiniaturized == true { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let wasMinimized = self.managerWindow?.isMiniaturized == true
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            for _ in 0..<50 {
+                if self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
+            print("reopen smoke: closed=\(reopened) minimized=\(restored)")
+            self.finishSmoke(name: "manager reopen", passed: reopened && restored)
         }
     }
 

@@ -449,6 +449,7 @@ final class YakCoolAPI: RechargeAPI {
         } catch let error as YConnectError {
             throw error
         } catch {
+            if AsyncCancellation.isExpected(error) { throw error }
             throw YConnectError.transport("网络请求失败：\(error.localizedDescription)")
         }
     }
