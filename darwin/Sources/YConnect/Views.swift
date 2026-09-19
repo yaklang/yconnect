@@ -1619,6 +1619,7 @@ struct ManagerView: View {
         }
         .task(id: "\(store.selectedClientID.rawValue)-\(store.selectedAccountKeyID ?? 0)-\(store.phase)") {
             store.refreshInstalledClients()
+            store.refreshInstalledTerminals()
             await store.refreshConfigurationModels()
         }
     }
@@ -1646,13 +1647,26 @@ struct ManagerView: View {
                         Label("仅打开专用终端", systemImage: "terminal")
                     }.buttonStyle(SmallSecondaryButtonStyle())
                 }
+                Picker("默认终端", selection: $store.defaultTerminalBundleID) {
+                    ForEach(ClientLauncher.terminals) { terminal in
+                        let installed = store.installedTerminalBundleIDs.contains(terminal.bundleID)
+                        Text(installed ? terminal.name : "\(terminal.name)（未安装）")
+                            .tag(terminal.bundleID)
+                            .disabled(!installed)
+                    }
+                }
+                .accessibilityIdentifier("default-terminal")
+                if store.defaultTerminalBundleID == TerminalBundleID.iTerm2 {
+                    Text("iTerm2 若询问是否运行会话文件，请确认；等待超时后可返回重试。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if store.selectedClientID == .openClaw {
                     Text("OpenClaw 需要先准备独立网关；请在专用终端中完成设置。").font(.caption).foregroundStyle(.secondary)
                 }
                 if let message = store.launchMessage {
                     Text(message).font(.callout).foregroundStyle(Brand.accent).textSelection(.enabled)
                 }
-                Text("macOS Terminal · 每次使用新会话 · 退出会话后清除启动密钥").font(.caption).foregroundStyle(.secondary)
+                Text("\(store.defaultTerminalName) · 每次使用新会话 · 退出会话后清除启动密钥").font(.caption).foregroundStyle(.secondary)
             }.padding(.top, 8).disabled(store.isBusy || store.selectedClientCompatibleModels.isEmpty || store.contextWindowValidationMessage != nil)
         }
     }

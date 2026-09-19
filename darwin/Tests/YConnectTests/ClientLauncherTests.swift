@@ -146,4 +146,172 @@ final class ClientLauncherTests: XCTestCase {
         XCTAssertEqual(options["baseURL"] as? String, "https://aibalance.yaklang.com/v1")
         XCTAssertEqual(options["apiKey"] as? String, key)
     }
+
+    // MARK: - Default terminal selection
+
+    func testDefaultTerminalPreferenceRoundTripsThroughPersistence() {
+        let previous = YConnectPreferences.defaultTerminalBundleID
+        defer { YConnectPreferences.defaultTerminalBundleID = previous }
+        UserDefaults.standard.removeObject(forKey: "yconnect.default-terminal")
+        XCTAssertEqual(YConnectPreferences.defaultTerminalBundleID, TerminalBundleID.terminalApp, "未设置偏好时默认 macOS Terminal")
+        YConnectPreferences.defaultTerminalBundleID = TerminalBundleID.iTerm2
+        XCTAssertEqual(YConnectPreferences.defaultTerminalBundleID, TerminalBundleID.iTerm2)
+        YConnectPreferences.defaultTerminalBundleID = TerminalBundleID.kitty
+        XCTAssertEqual(YConnectPreferences.defaultTerminalBundleID, TerminalBundleID.kitty)
+    }
+
+    @MainActor
+    func testStoreTerminalSelectionReadsPersistsAndIsolatesPreviewStores() throws {
+        let previous = YConnectPreferences.defaultTerminalBundleID
+        defer { YConnectPreferences.defaultTerminalBundleID = previous }
+        let root = try root()
+
+        YConnectPreferences.defaultTerminalBundleID = TerminalBundleID.kitty
+        let store = YConnectStore(environment: .preview(at: root), credentialVault: MemoryCredentialVault())
+        XCTAssertEqual(store.defaultTerminalBundleID, TerminalBundleID.kitty)
+        XCTAssertEqual(store.defaultTerminalName, "kitty")
+        store.defaultTerminalBundleID = TerminalBundleID.wezTerm
+        XCTAssertEqual(YConnectPreferences.defaultTerminalBundleID, TerminalBundleID.wezTerm)
+
+        YConnectPreferences.defaultTerminalBundleID = "dev.warp.Warp-Stable"
+        let normalized = YConnectStore(environment: .preview(at: root), credentialVault: MemoryCredentialVault())
+        XCTAssertEqual(normalized.defaultTerminalBundleID, TerminalBundleID.terminalApp, "未知偏好值回落 macOS Terminal")
+
+        YConnectPreferences.defaultTerminalBundleID = TerminalBundleID.ghostty
+        let preview = YConnectStore.preview(environment: .preview(at: root))
+        XCTAssertEqual(preview.defaultTerminalBundleID, TerminalBundleID.terminalApp, "预览 store 不读取持久化选择")
+        preview.defaultTerminalBundleID = TerminalBundleID.alacritty
+        XCTAssertEqual(YConnectPreferences.defaultTerminalBundleID, TerminalBundleID.ghostty, "预览 store 不写持久化选择")
+        XCTAssertEqual(preview.defaultTerminalName, "Alacritty")
+    }
+
+    func testSupportedTerminalCatalogIsStable() {
+        XCTAssertEqual(ClientLauncher.terminals.map(\.bundleID), [
+            TerminalBundleID.terminalApp, TerminalBundleID.iTerm2, TerminalBundleID.ghostty,
+            TerminalBundleID.kitty, TerminalBundleID.wezTerm, TerminalBundleID.alacritty,
+        ])
+        XCTAssertEqual(ClientLauncher.terminals.map(\.name), ["macOS Terminal", "iTerm2", "Ghostty", "kitty", "WezTerm", "Alacritty"])
+        XCTAssertEqual(Set(ClientLauncher.terminals.map(\.bundleID)).count, ClientLauncher.terminals.count, "bundle id 必须唯一")
+    }
+
+    func testResolveTerminalPrefersInstalledSelectionAndFallsBackToTerminalApp() {
+        let all = Set(ClientLauncher.terminals.map(\.bundleID))
+        for id in [TerminalBundleID.terminalApp, TerminalBundleID.iTerm2, TerminalBundleID.kitty] {
+            let resolved = ClientLauncher.resolveTerminal(preferredBundleID: id, installedBundleIDs: all)
+            XCTAssertEqual(resolved.terminal.bundleID, id)
+            XCTAssertFalse(resolved.fellBackToTerminalApp)
+        }
+        let uninstalled = ClientLauncher.resolveTerminal(
+            preferredBundleID: TerminalBundleID.ghostty,
+            installedBundleIDs: [TerminalBundleID.terminalApp, TerminalBundleID.iTerm2])
+        XCTAssertEqual(uninstalled.terminal.bundleID, TerminalBundleID.terminalApp)
+        XCTAssertTrue(uninstalled.fellBackToTerminalApp)
+        let unknown = ClientLauncher.resolveTerminal(
+            preferredBundleID: "dev.warp.Warp-Stable", installedBundleIDs: all)
+        XCTAssertEqual(unknown.terminal.bundleID, TerminalBundleID.terminalApp)
+        XCTAssertTrue(unknown.fellBackToTerminalApp)
+    }
+
+    func testTerminalLaunchKindBuildsExactCommandsPerTerminal() throws {
+        let app = URL(fileURLWithPath: "/Applications/Fake Terminal.app")
+        let plan = try plan(root())
+        let command = plan.commandURL.path
+
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.terminalApp)),
+            application: app, plan: plan), .openCommandFile)
+
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.iTerm2)),
+            application: app, plan: plan), .openCommandFile)
+
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.ghostty)),
+            application: app, plan: plan),
+            .process(URL(fileURLWithPath: "/usr/bin/open"),
+                ["-na", app.path, "--args", "-e", "/bin/zsh", "-f", command]))
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.kitty)),
+            application: app, plan: plan),
+            .process(app.appendingPathComponent("Contents/MacOS/kitty"),
+                ["--directory", plan.root.path, "/bin/zsh", "-f", command]))
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.wezTerm)),
+            application: app, plan: plan),
+            .process(URL(fileURLWithPath: "/usr/bin/open"),
+                ["-na", app.path, "--args", "start", "--always-new-process", "--", "/bin/zsh", "-f", command]))
+        XCTAssertEqual(ClientLauncher.launchKind(
+            for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.alacritty)),
+            application: app, plan: plan),
+            .process(URL(fileURLWithPath: "/usr/bin/open"),
+                ["-na", app.path, "--args", "-e", "/bin/zsh", "-f", command]))
+    }
+
+    @MainActor
+    func testMissingTerminalRevokesPendingSessionAndCredential() async throws {
+        let plan = try plan(root())
+        do {
+            _ = try await ClientLauncher.start(plan, applications: [:])
+            XCTFail("Missing Terminal must fail")
+        } catch {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifestURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifest.secretPath))
+            XCTAssertEqual(AgentSessionRunner.run(manifestURL: plan.manifestURL), 1)
+        }
+    }
+
+    @MainActor
+    func testBrokenTerminalExecutableRevokesCredential() async throws {
+        let plan = try plan(root())
+        do {
+            _ = try await ClientLauncher.start(plan, preferredTerminalBundleID: TerminalBundleID.kitty,
+                applications: [TerminalBundleID.kitty: plan.root.appendingPathComponent("missing.app")])
+            XCTFail("Missing executable must fail")
+        } catch {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifest.secretPath))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifestURL.path))
+        }
+    }
+
+    func testCancellationDoesNotRevokeAlreadyConsumedSession() throws {
+        let plan = try plan(root())
+        try FileManager.default.moveItem(at: plan.manifestURL, to: plan.root.appendingPathComponent("consumed.json"))
+        ClientLauncher.cancelPendingLaunch(plan)
+        XCTAssertEqual(try String(contentsOfFile: plan.manifest.secretPath), key)
+    }
+
+    @MainActor
+    func testTerminalConfirmationTimeoutIgnoresLateCallback() async throws {
+        var callback: ((Error?) -> Void)?
+        do {
+            try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { callback = $0 }
+            XCTFail("An unanswered terminal confirmation must time out")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("确认超时"))
+        }
+        callback?(nil)
+        callback?(YConnectError.invalidResponse)
+    }
+
+    @MainActor
+    func testTerminalOpenPropagatesRejectionAndAcceptsOnlyOneCompletion() async throws {
+        do {
+            try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { $0(YConnectError.invalidResponse) }
+            XCTFail("Open failure must propagate")
+        } catch {}
+        try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { completion in
+            completion(nil)
+            completion(YConnectError.invalidResponse)
+        }
+        try await Task.sleep(for: .milliseconds(30))
+    }
+
+    func testLaunchReadyMessageNotesTerminalFallback() {
+        XCTAssertEqual(ClientLauncher.launchReadyMessage(autoStart: true, model: "gpt-5", fellBackToTerminalApp: false),
+            "Agent 进程已在新终端启动 · gpt-5")
+        XCTAssertEqual(ClientLauncher.launchReadyMessage(autoStart: false, model: "gpt-5", fellBackToTerminalApp: false),
+            "专用终端已就绪 · 输入 yconnect-agent 启动")
+        XCTAssertEqual(ClientLauncher.launchReadyMessage(autoStart: true, model: "gpt-5", fellBackToTerminalApp: true),
+            "Agent 进程已在新终端启动 · gpt-5 · 未检测到所选终端，已改用 macOS Terminal")
+    }
 }

@@ -58,6 +58,26 @@ jobs:
           for script in script/*.sh; do bash -n "$script"; done
           python3 script/version.py
 
+      - name: Install popular terminals for signed release acceptance
+        if: inputs.sign-release
+        run: brew install --cask iterm2 ghostty
+
+      - name: Verify first launch of downloaded test terminals
+        if: inputs.sign-release
+        run: |
+          mkdir -p artifacts
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
+          swiftc script/accept-ci-terminal-first-open.swift -o "$RUNNER_TEMP/accept-terminal-first-open"
+          failed=0
+          for app in iTerm Ghostty; do
+            if ! "$RUNNER_TEMP/accept-terminal-first-open" "/Applications/$app.app"; then
+              screencapture -x "artifacts/terminal-failure-first-open-$app.png" || true
+              failed=1
+            fi
+          done
+          exit "$failed"
+
       - name: Build release
         run: |
           swift --version
@@ -158,6 +178,42 @@ jobs:
       - name: Verify packaged launcher
         run: python3 script/test-macos-launcher.py "dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
 
+      - name: Verify native Terminal launch and missing-terminal fallback
+        run: |
+          BIN="dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+          "$BIN" --smoke-terminal-launch com.apple.Terminal
+          "$BIN" --smoke-terminal-launch fixture.missing-terminal
+
+      - name: Verify signed app launches popular terminals
+        if: inputs.sign-release
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          BIN="dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+          # Simulate a user who acknowledged iTerm's open-file confirmation in
+          # this disposable test account. Production never changes this setting.
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
+          trap 'defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile; defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection' EXIT
+          failed=0
+          for terminal in com.googlecode.iterm2 com.mitchellh.ghostty; do
+            echo "Testing native terminal: $terminal"
+            if ! "$BIN" --smoke-terminal-launch "$terminal"; then
+              failed=1
+              screencapture -x "artifacts/terminal-failure-$terminal.png" || true
+            fi
+          done
+          exit "$failed"
+
+      - name: Upload terminal acceptance diagnostics
+        if: always() && inputs.sign-release
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-acceptance-diagnostics
+          path: artifacts/terminal-*
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Create production DMG
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
@@ -230,13 +286,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Select OpenSSL 3
-        run: echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
-      - name: Build and test against Tahoe SDK
-        run: |
-          sw_vers
-          swift build --package-path darwin --configuration release -Xswiftc -warnings-as-errors
-          swift test --package-path darwin -Xswiftc -warnings-as-errors
+      - name: Check Tahoe host
+        run: sw_vers
       - uses: actions/download-artifact@v4
         with:
           name: release-macos

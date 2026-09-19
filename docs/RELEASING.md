@@ -8,7 +8,7 @@ python3 script/version.py
 python3 -m unittest discover -s script/tests -v
 ```
 
-更新 README 下载链接及 `docs/releases/v<版本>.md`，将发布改动整理为一个提交。先在发布分支运行 Release 工作流的 `workflow_dispatch`：它执行两端测试、打包、真实签名与验证，不上传 OSS 或创建 Release。通过后将相同提交合入 main，再推送对应 `v*` 标签发布。
+更新 README 下载链接及 `docs/releases/v<版本>.md`，将发布改动整理为一个提交。PR 检查通过后合入 main，再推送对应 `v*` 标签。标签 Release 工作流执行两端测试、打包、真实签名与验证；全部通过后才上传 OSS 并创建 Release。需要单独预演签名或打包改动时，可先在发布分支运行 `workflow_dispatch`，它不发布产物。
 
 ## 凭据
 
@@ -45,3 +45,9 @@ GitHub Actions Secrets：
 发布器从 OSS 读取历史索引，拒绝版本倒退或覆盖不同内容的既有版本文件。公证时间戳会使重新构建的产物产生不同哈希；已有版本目录时应复用已验证产物恢复发布，或修复后递增版本，不能直接覆盖。
 
 公共入口：`https://aliyun-oss.yaklang.com/yconnect/`。这些文件提供下载与版本查询元数据；0.5.0 起支持用户点击触发的应用内更新，后台只进行版本检查。
+
+## 终端与系统兼容验收
+
+正式签名验收实测 macOS Terminal、iTerm2、Ghostty 和所选终端缺失时的回退，并验证 TTY、模型、工作目录、单次消费与凭据清理。kitty、WezTerm、Alacritty 是可选兼容入口，不保证所有环境可用；保留启动参数测试，可用 `--smoke-terminal-launch <bundle-id>` 做本机补验。
+
+macOS 14 运行完整测试；Tahoe 的 Apple Silicon 和 Intel 使用同一个 Universal 安装包执行启动、窗口和重新打开检查。两端的代码签名、安装/卸载、更新验签和篡改拒绝继续作为发布门槛。
