@@ -58,6 +58,23 @@ jobs:
           for script in script/*.sh; do bash -n "$script"; done
           python3 script/version.py
 
+      - name: Detect graphics support for terminal acceptance
+        if: inputs.sign-release
+        run: |
+          mkdir -p artifacts
+          clang -Wall -Wextra -Werror -Wno-deprecated-declarations -framework OpenGL script/probe-macos-terminal-opengl.c -o "$RUNNER_TEMP/probe-terminal-opengl"
+          if "$RUNNER_TEMP/probe-terminal-opengl" > artifacts/terminal-environment-opengl.txt; then
+            echo "KITTY_GUI_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            status=$?
+            if [[ "$status" != 2 ]]; then exit "$status"; fi
+            echo "KITTY_GUI_AVAILABLE=false" >> "$GITHUB_ENV"
+            # WezTerm supports CPU rasterization on hosts with limited graphics.
+            echo 'return { front_end = "Software" }' > "$HOME/.wezterm.lua"
+            echo "::notice::This runner lacks accelerated OpenGL. The signed kitty session must be verified on a physical Mac before tagging; see docs/RELEASING.md."
+          fi
+          cat artifacts/terminal-environment-opengl.txt
+
       - name: Install supported terminals for signed release acceptance
         if: inputs.sign-release
         run: |
@@ -211,6 +228,10 @@ jobs:
           trap 'defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile; defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection' EXIT
           failed=0
           for terminal in com.googlecode.iterm2 com.mitchellh.ghostty net.kovidgoyal.kitty com.github.wez.wezterm org.alacritty; do
+            if [[ "$terminal" == net.kovidgoyal.kitty && "$KITTY_GUI_AVAILABLE" == false ]]; then
+              echo "NOT EXERCISED on this runner: kitty requires accelerated OpenGL; physical-Mac signed-package verification is required before tagging"
+              continue
+            fi
             echo "Testing native terminal: $terminal"
             if ! "$BIN" --smoke-terminal-launch "$terminal"; then
               failed=1
@@ -228,7 +249,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terminal-acceptance-diagnostics
-          path: artifacts/terminal-failure-*
+          path: artifacts/terminal-*
           if-no-files-found: ignore
           retention-days: 14
 

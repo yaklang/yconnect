@@ -44,6 +44,9 @@ enum TerminalLaunchSmoke {
             }
             try await Task.sleep(for: .milliseconds(100))
         }
-        throw YConnectError.unsupported("Terminal fixture did not exit and clean its credential")
+        let status = (try? String(contentsOf: plan.exitURL)) ?? "missing"
+        let markerWritten = fm.fileExists(atPath: marker.path)
+        let secretPresent = fm.fileExists(atPath: plan.manifest.secretPath)
+        throw YConnectError.unsupported("Terminal fixture did not exit and clean its credential (exit=\(status), marker=\(markerWritten), secret=\(secretPresent))")
     }
 }

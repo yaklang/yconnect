@@ -45,3 +45,15 @@ GitHub Actions Secrets：
 发布器从 OSS 读取历史索引，拒绝版本倒退或覆盖不同内容的既有版本文件。公证时间戳会使重新构建的产物产生不同哈希；已有版本目录时应复用已验证产物恢复发布，或修复后递增版本，不能直接覆盖。
 
 公共入口：`https://aliyun-oss.yaklang.com/yconnect/`。这些文件提供下载与版本查询元数据；0.5.0 起支持用户点击触发的应用内更新，后台只进行版本检查。
+
+## 终端图形环境验收
+
+签名预演实测安装的默认终端。GitHub macOS 虚拟机可能没有 kitty 要求的加速 OpenGL core profile；CI 用 CGL 实际创建像素格式和上下文探测，明确记录未覆盖的 kitty 项，不能把它计为通过。该环境下 WezTerm 使用其官方支持的软件渲染配置。
+
+当出现上述未覆盖项，发布标签前必须从同一预演下载正式签名 DMG，在具有 GPU 的实体 Mac 验证签名、公证及 kitty 原生会话；保留输出：
+
+```sh
+"/path/to/Y CONNECT.app/Contents/MacOS/YConnect" --smoke-terminal-launch net.kovidgoyal.kitty
+```
+
+验证使用临时目录、假密钥和测试 Agent，检查特殊路径、TTY、模型、工作目录、单次消费与退出凭据清理。下载后的正式发布包还应重复该验收。
