@@ -280,6 +280,32 @@ final class ClientLauncherTests: XCTestCase {
         XCTAssertEqual(try String(contentsOfFile: plan.manifest.secretPath), key)
     }
 
+    @MainActor
+    func testTerminalConfirmationTimeoutIgnoresLateCallback() async throws {
+        var callback: ((Error?) -> Void)?
+        do {
+            try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { callback = $0 }
+            XCTFail("An unanswered terminal confirmation must time out")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("确认超时"))
+        }
+        callback?(nil)
+        callback?(YConnectError.invalidResponse)
+    }
+
+    @MainActor
+    func testTerminalOpenPropagatesRejectionAndAcceptsOnlyOneCompletion() async throws {
+        do {
+            try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { $0(YConnectError.invalidResponse) }
+            XCTFail("Open failure must propagate")
+        } catch {}
+        try await ClientLauncher.waitForTerminalOpen(timeout: 0.01) { completion in
+            completion(nil)
+            completion(YConnectError.invalidResponse)
+        }
+        try await Task.sleep(for: .milliseconds(30))
+    }
+
     func testLaunchReadyMessageNotesTerminalFallback() {
         XCTAssertEqual(ClientLauncher.launchReadyMessage(autoStart: true, model: "gpt-5", fellBackToTerminalApp: false),
             "Agent 进程已在新终端启动 · gpt-5")

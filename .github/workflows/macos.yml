@@ -184,10 +184,17 @@ jobs:
 
       - name: Verify signed app launches every supported terminal
         if: inputs.sign-release
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           BIN="dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+          # Simulate a user who acknowledged iTerm's open-file confirmation in
+          # this disposable test account. Production never changes this setting.
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
+          trap 'defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile; defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection' EXIT
           for terminal in com.googlecode.iterm2 com.mitchellh.ghostty net.kovidgoyal.kitty com.github.wez.wezterm org.alacritty; do
+            echo "Testing native terminal: $terminal"
             "$BIN" --smoke-terminal-launch "$terminal"
           done
 

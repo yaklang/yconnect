@@ -247,10 +247,9 @@ enum ClientLauncher {
             // The macOS 14 SDK's async overlay moves non-Sendable AppKit objects
             // across actors. Keep the request on the main actor and bridge only
             // its completion, without transferring NSRunningApplication.
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            try await waitForTerminalOpen { completion in
                 NSWorkspace.shared.open([plan.commandURL], withApplicationAt: application, configuration: configuration) { _, error in
-                    if let error { continuation.resume(throwing: error) }
-                    else { continuation.resume(returning: ()) }
+                    completion(error)
                 }
             }
         case .process(let executable, let arguments):
@@ -260,6 +259,9 @@ enum ClientLauncher {
             let process = Process()
             process.executableURL = executable
             process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
             try process.run()
         }
         for _ in 0..<150 {
@@ -274,6 +276,20 @@ enum ClientLauncher {
             }
         }
         throw YConnectError.unsupported("终端尚未确认启动，未使用的启动请求已取消。请查看终端窗口后重试")
+    }
+
+    /// Launch Services can wait indefinitely while the terminal shows its own
+    /// confirmation dialog. Bound that wait and ignore a later completion.
+    @MainActor
+    static func waitForTerminalOpen(timeout: TimeInterval = 30,
+                                    request: (@escaping (Error?) -> Void) -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let completion = TerminalOpenCompletion(continuation)
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                completion.finish(YConnectError.unsupported("等待终端确认超时，启动请求已取消。请处理终端中的运行确认提示，然后返回重试"))
+            }
+            request { completion.finish($0) }
+        }
     }
 
     /// Claim an unconsumed manifest atomically before revoking its credential.
@@ -307,6 +323,22 @@ enum ClientLauncher {
             let secret = URL(fileURLWithPath: manifest.secretPath).resolvingSymlinksInPath()
             if secret.path.hasPrefix(root.resolvingSymlinksInPath().path + "/") { try? fm.removeItem(at: secret) }
         }
+    }
+}
+
+private final class TerminalOpenCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(_ continuation: CheckedContinuation<Void, Error>) { self.continuation = continuation }
+
+    func finish(_ error: Error?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        if let error { pending?.resume(throwing: error) }
+        else { pending?.resume(returning: ()) }
     }
 }
 

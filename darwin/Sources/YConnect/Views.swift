@@ -1656,6 +1656,10 @@ struct ManagerView: View {
                     }
                 }
                 .accessibilityIdentifier("default-terminal")
+                if store.defaultTerminalBundleID == TerminalBundleID.iTerm2 {
+                    Text("iTerm2 若询问是否运行会话文件，请确认；等待超时后可返回重试。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if store.selectedClientID == .openClaw {
                     Text("OpenClaw 需要先准备独立网关；请在专用终端中完成设置。").font(.caption).foregroundStyle(.secondary)
                 }
