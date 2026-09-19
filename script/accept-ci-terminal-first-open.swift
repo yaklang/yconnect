@@ -27,7 +27,8 @@ for (executable, arguments) in [
 }
 let launch = Process()
 launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-launch.arguments = ["-a", app.path]
+let log = FileManager.default.temporaryDirectory.appendingPathComponent("yconnect-first-open-\(app.lastPathComponent).log")
+launch.arguments = ["-a", app.path, "--stdout", log.path, "--stderr", log.path]
 try launch.run()
 
 func attribute(_ element: AXUIElement, _ name: CFString) -> AnyObject? {
@@ -67,4 +68,8 @@ while Date() < deadline {
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 }
-fail("first launch timed out; accessibility trusted=\(AXIsProcessTrusted())")
+if let output = try? String(contentsOf: log) { print(String(output.suffix(12000))) }
+for running in NSWorkspace.shared.runningApplications where running.bundleIdentifier == bundleID || running.localizedName?.lowercased() == app.deletingPathExtension().lastPathComponent.lowercased() {
+    print("Process: \(running.localizedName ?? "?") bundle=\(running.bundleIdentifier ?? "?") pid=\(running.processIdentifier) finished=\(running.isFinishedLaunching)")
+}
+fail("first launch timed out; accessibility trusted=\(AXIsProcessTrusted()), acknowledged=\(accepted), open running=\(launch.isRunning)")

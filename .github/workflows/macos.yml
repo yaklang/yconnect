@@ -58,6 +58,37 @@ jobs:
           for script in script/*.sh; do bash -n "$script"; done
           python3 script/version.py
 
+      - name: Install supported terminals for signed release acceptance
+        if: inputs.sign-release
+        run: |
+          set -euo pipefail
+          brew install --cask iterm2 ghostty kitty wezterm
+          # Homebrew disabled the unsigned Alacritty cask. Build the pinned
+          # upstream 0.17.0 source on this disposable runner instead of changing
+          # Gatekeeper settings or removing quarantine from a downloaded app.
+          source_dir="$RUNNER_TEMP/alacritty-source"
+          git clone --depth 1 --branch v0.17.0 https://github.com/alacritty/alacritty.git "$source_dir"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "94e7c8874e526b1e67b349d9ba30ddf81669119e"
+          cargo build --release --locked --manifest-path "$source_dir/Cargo.toml"
+          ditto "$source_dir/extra/osx/Alacritty.app" /Applications/Alacritty.app
+          mkdir -p /Applications/Alacritty.app/Contents/MacOS
+          cp "$source_dir/target/release/alacritty" /Applications/Alacritty.app/Contents/MacOS/alacritty
+          codesign --force --sign - /Applications/Alacritty.app
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Alacritty.app
+
+      - name: Verify first launch of downloaded test terminals
+        if: inputs.sign-release
+        run: |
+          swiftc script/accept-ci-terminal-first-open.swift -o "$RUNNER_TEMP/accept-terminal-first-open"
+          failed=0
+          for app in iTerm Ghostty kitty WezTerm; do
+            if ! "$RUNNER_TEMP/accept-terminal-first-open" "/Applications/$app.app"; then
+              screencapture -x "artifacts/terminal-failure-first-open-$app.png" || true
+              failed=1
+            fi
+          done
+          exit "$failed"
+
       - name: Build release
         run: |
           swift --version
@@ -164,24 +195,6 @@ jobs:
           "$BIN" --smoke-terminal-launch com.apple.Terminal
           "$BIN" --smoke-terminal-launch fixture.missing-terminal
 
-      - name: Install supported terminals for signed release acceptance
-        if: inputs.sign-release
-        run: |
-          set -euo pipefail
-          brew install --cask iterm2 ghostty kitty wezterm
-          # Homebrew disabled the unsigned Alacritty cask. Build the pinned
-          # upstream 0.17.0 source on this disposable runner instead of changing
-          # Gatekeeper settings or removing quarantine from a downloaded app.
-          source_dir="$RUNNER_TEMP/alacritty-source"
-          git clone --depth 1 --branch v0.17.0 https://github.com/alacritty/alacritty.git "$source_dir"
-          test "$(git -C "$source_dir" rev-parse HEAD)" = "94e7c8874e526b1e67b349d9ba30ddf81669119e"
-          cargo build --release --locked --manifest-path "$source_dir/Cargo.toml"
-          ditto "$source_dir/extra/osx/Alacritty.app" /Applications/Alacritty.app
-          mkdir -p /Applications/Alacritty.app/Contents/MacOS
-          cp "$source_dir/target/release/alacritty" /Applications/Alacritty.app/Contents/MacOS/alacritty
-          codesign --force --sign - /Applications/Alacritty.app
-          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Alacritty.app
-
       - name: Verify signed app launches every supported terminal
         if: inputs.sign-release
         timeout-minutes: 5
@@ -193,13 +206,6 @@ jobs:
           defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
           defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
           trap 'defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile; defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection' EXIT
-          swiftc script/accept-ci-terminal-first-open.swift -o "$RUNNER_TEMP/accept-terminal-first-open"
-          for app in iTerm Ghostty kitty WezTerm; do
-            if ! "$RUNNER_TEMP/accept-terminal-first-open" "/Applications/$app.app"; then
-              screencapture -x "artifacts/terminal-failure-first-open-$app.png" || true
-              exit 1
-            fi
-          done
           failed=0
           for terminal in com.googlecode.iterm2 com.mitchellh.ghostty net.kovidgoyal.kitty com.github.wez.wezterm org.alacritty; do
             echo "Testing native terminal: $terminal"
