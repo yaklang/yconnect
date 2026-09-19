@@ -12,7 +12,7 @@ guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",
       CommandLine.arguments.count == 2 else { fail("requires a disposable GitHub Actions account and app path") }
 let app = URL(fileURLWithPath: CommandLine.arguments[1])
 guard app.deletingLastPathComponent().path == "/Applications",
-      ["iTerm.app", "Ghostty.app", "kitty.app", "WezTerm.app"].contains(app.lastPathComponent),
+      ["iTerm.app", "Ghostty.app"].contains(app.lastPathComponent),
       let bundleID = Bundle(url: app)?.bundleIdentifier else { fail("unexpected application") }
 for (executable, arguments) in [
     ("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path]),
