@@ -221,50 +221,63 @@ final class ClientLauncherTests: XCTestCase {
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.terminalApp)),
             application: app, plan: plan), .openCommandFile)
 
-        let itermKind = ClientLauncher.launchKind(
+        XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.iTerm2)),
-            application: app, plan: plan)
-        guard case .appleScript(let source) = itermKind else {
-            return XCTFail("iTerm2 应通过 AppleScript 启动，实际：\(itermKind)")
-        }
-        XCTAssertEqual(source, """
-        tell application "iTerm2"
-            activate
-            create window with default profile
-            tell current session of current window
-                write text "zsh -f '\(command)'"
-            end tell
-        end tell
-        """)
+            application: app, plan: plan), .openCommandFile)
 
         XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.ghostty)),
             application: app, plan: plan),
             .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", app.path, "--args", "-e", "zsh", "-f", command]))
+                ["-na", app.path, "--args", "-e", "/bin/zsh", "-f", command]))
         XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.kitty)),
             application: app, plan: plan),
             .process(app.appendingPathComponent("Contents/MacOS/kitty"),
-                ["--directory", plan.root.path, "zsh", "-f", command]))
+                ["--directory", plan.root.path, "/bin/zsh", "-f", command]))
         XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.wezTerm)),
             application: app, plan: plan),
             .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", app.path, "--args", "start", "--", "zsh", "-f", command]))
+                ["-na", app.path, "--args", "start", "--", "/bin/zsh", "-f", command]))
         XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.alacritty)),
             application: app, plan: plan),
             .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", app.path, "--args", "-e", "zsh", "-f", command]))
+                ["-na", app.path, "--args", "-e", "/bin/zsh", "-f", command]))
     }
 
-    func testITermAppleScriptEscapesShellAndAppleScriptMetacharacters() {
-        let plain = ClientLauncher.iTermAppleScript(commandPath: "/tmp/session/启动 Agent.command")
-        XCTAssertTrue(plain.contains("write text \"zsh -f '/tmp/session/启动 Agent.command'\""))
-        XCTAssertTrue(plain.contains("create window with default profile"))
-        let nasty = ClientLauncher.iTermAppleScript(commandPath: "/tmp/we\"ird\\path/x")
-        XCTAssertTrue(nasty.contains(#"write text "zsh -f '/tmp/we\"ird\\path/x'""#))
+    @MainActor
+    func testMissingTerminalRevokesPendingSessionAndCredential() async throws {
+        let plan = try plan(root())
+        do {
+            _ = try await ClientLauncher.start(plan, applications: [:])
+            XCTFail("Missing Terminal must fail")
+        } catch {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifestURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifest.secretPath))
+            XCTAssertEqual(AgentSessionRunner.run(manifestURL: plan.manifestURL), 1)
+        }
+    }
+
+    @MainActor
+    func testBrokenTerminalExecutableRevokesCredential() async throws {
+        let plan = try plan(root())
+        do {
+            _ = try await ClientLauncher.start(plan, preferredTerminalBundleID: TerminalBundleID.kitty,
+                applications: [TerminalBundleID.kitty: plan.root.appendingPathComponent("missing.app")])
+            XCTFail("Missing executable must fail")
+        } catch {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifest.secretPath))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.manifestURL.path))
+        }
+    }
+
+    func testCancellationDoesNotRevokeAlreadyConsumedSession() throws {
+        let plan = try plan(root())
+        try FileManager.default.moveItem(at: plan.manifestURL, to: plan.root.appendingPathComponent("consumed.json"))
+        ClientLauncher.cancelPendingLaunch(plan)
+        XCTAssertEqual(try String(contentsOfFile: plan.manifest.secretPath), key)
     }
 
     func testLaunchReadyMessageNotesTerminalFallback() {

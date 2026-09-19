@@ -112,7 +112,10 @@ BUILD_NUMBER="$(python3 "$SCRIPT_DIR/version.py" --set "$VERSION" --build-number
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_BUNDLE/Contents/Info.plist"
 plutil -lint "$APP_BUNDLE/Contents/Info.plist" >/dev/null
 
-codesign --force --deep --options runtime --sign - "$APP_BUNDLE"
+# Ad-hoc code has no Team ID and cannot satisfy hardened library validation
+# when loading Sparkle on macOS 14. Developer ID release signing below is a
+# separate workflow step that signs all nested code and enables the runtime.
+codesign --force --deep --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 
 ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/YConnect")"

@@ -10,6 +10,21 @@ enum YConnectMain {
             exit(AgentSessionRunner.run(manifestURL: URL(fileURLWithPath: manifest)))
         }
         let application = NSApplication.shared
+        if let terminal = argument(after: "--smoke-terminal-launch") {
+            application.setActivationPolicy(.prohibited)
+            application.finishLaunching()
+            Task { @MainActor in
+                do {
+                    try await TerminalLaunchSmoke.run(bundleID: terminal)
+                    exit(0)
+                } catch {
+                    fputs("terminal smoke failed: \(error.localizedDescription)\n", stderr)
+                    exit(1)
+                }
+            }
+            application.run()
+            return
+        }
         if CommandLine.arguments.contains("--dark"), CommandLine.arguments.contains(where: { $0.hasPrefix("--render-") }) {
             application.appearance = NSAppearance(named: .darkAqua)
         }
@@ -134,6 +149,9 @@ enum YConnectMain {
             }
         }
         if let contextWindow = argument(after: "--context-window") { store.contextWindowInput = contextWindow }
+        if let terminal = argument(after: "--terminal"), ClientLauncher.terminal(withBundleID: terminal) != nil {
+            store.defaultTerminalBundleID = terminal
+        }
         let navigation = ManagerNavigation()
         if let sectionName = argument(after: "--section"),
            let section = ManagerSection(rawValue: sectionName == "openCode" ? "clients" : sectionName) {
@@ -146,7 +164,9 @@ enum YConnectMain {
             beginAccountLogin: {}, setEdgeDockEnabled: { _ in }
         )
         do {
-            try render(view: view, size: NSSize(width: 1080, height: 720), output: output)
+            let width = max(940, argument(after: "--width").flatMap(Double.init) ?? 1080)
+            let height = max(640, argument(after: "--height").flatMap(Double.init) ?? 720)
+            try render(view: view, size: NSSize(width: width, height: height), output: output)
             print("manager rendered: \(output)")
         } catch {
             fputs("manager render failed: \(error.localizedDescription)\n", stderr)

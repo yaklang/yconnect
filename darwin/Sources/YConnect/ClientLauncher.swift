@@ -88,10 +88,8 @@ enum ClientLauncher {
 
     /// How a terminal receives the session `.command` file.
     enum TerminalLaunchKind: Equatable {
-        /// Terminal.app runs the `.command` file through NSWorkspace (existing path).
+        /// Terminal.app and iTerm2 open the same executable session file natively.
         case openCommandFile
-        /// iTerm2 is driven by an AppleScript that types the command into a new window.
-        case appleScript(String)
         /// Ghostty / kitty / WezTerm / Alacritty run a process with explicit argv.
         case process(URL, [String])
     }
@@ -99,40 +97,21 @@ enum ClientLauncher {
     /// Launch instructions per terminal, pure so tests can assert exact argv and script text.
     static func launchKind(for terminal: TerminalOption, application: URL, plan: AgentLaunchPlan) -> TerminalLaunchKind {
         switch terminal.bundleID {
-        case TerminalBundleID.terminalApp:
+        case TerminalBundleID.terminalApp, TerminalBundleID.iTerm2:
             return .openCommandFile
-        case TerminalBundleID.iTerm2:
-            return .appleScript(iTermAppleScript(commandPath: plan.commandURL.path))
         case TerminalBundleID.kitty:
             // macOS app bundles are not on PATH; resolve the bundled binary from the app.
             return .process(application.appendingPathComponent("Contents/MacOS/kitty"),
-                ["--directory", plan.root.path, "zsh", "-f", plan.commandURL.path])
+                ["--directory", plan.root.path, "/bin/zsh", "-f", plan.commandURL.path])
         case TerminalBundleID.wezTerm:
             return .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", application.path, "--args", "start", "--", "zsh", "-f", plan.commandURL.path])
+                ["-na", application.path, "--args", "start", "--", "/bin/zsh", "-f", plan.commandURL.path])
         case TerminalBundleID.ghostty, TerminalBundleID.alacritty:
             return .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", application.path, "--args", "-e", "zsh", "-f", plan.commandURL.path])
+                ["-na", application.path, "--args", "-e", "/bin/zsh", "-f", plan.commandURL.path])
         default:
             return .openCommandFile
         }
-    }
-
-    /// iTerm2: open a window with the default profile, then type the session command
-    /// into it. The first run triggers the macOS automation consent prompt.
-    static func iTermAppleScript(commandPath: String) -> String {
-        let command = "zsh -f \(shellQuote(commandPath))"
-        let literal = command.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return """
-        tell application "iTerm2"
-            activate
-            create window with default profile
-            tell current session of current window
-                write text "\(literal)"
-            end tell
-        end tell
-        """
     }
 
     static func launchReadyMessage(autoStart: Bool, model: String, fellBackToTerminalApp: Bool) -> String {
@@ -251,8 +230,11 @@ enum ClientLauncher {
 
     @MainActor
     static func start(_ plan: AgentLaunchPlan,
-                      preferredTerminalBundleID: String = YConnectPreferences.defaultTerminalBundleID) async throws -> String {
-        let applications = terminalApplications()
+                      preferredTerminalBundleID: String = YConnectPreferences.defaultTerminalBundleID,
+                      applications: [String: URL]? = nil) async throws -> String {
+        var acknowledged = false
+        defer { if !acknowledged { cancelPendingLaunch(plan) } }
+        let applications = applications ?? terminalApplications()
         let resolved = resolveTerminal(preferredBundleID: preferredTerminalBundleID,
                                        installedBundleIDs: Set(applications.keys))
         guard let application = applications[resolved.terminal.bundleID] else {
@@ -271,8 +253,6 @@ enum ClientLauncher {
                     else { continuation.resume(returning: ()) }
                 }
             }
-        case .appleScript(let source):
-            try runAppleScript(source)
         case .process(let executable, let arguments):
             guard FileManager.default.isExecutableFile(atPath: executable.path) else {
                 throw YConnectError.unsupported("未找到 \(resolved.terminal.name) 的启动程序")
@@ -288,23 +268,22 @@ enum ClientLauncher {
                 throw YConnectError.unsupported("Agent 启动后退出（状态 \(code)），请查看终端中的提示")
             }
             if FileManager.default.fileExists(atPath: plan.readyURL.path) {
+                acknowledged = true
                 return launchReadyMessage(autoStart: plan.manifest.autoStart, model: plan.manifest.model,
                                           fellBackToTerminalApp: resolved.fellBackToTerminalApp)
             }
         }
-        throw YConnectError.unsupported("终端尚未确认启动，请查看终端窗口。启动请求两分钟后失效")
+        throw YConnectError.unsupported("终端尚未确认启动，未使用的启动请求已取消。请查看终端窗口后重试")
     }
 
-    /// Apple event handlers must run on the main actor; `start` already guarantees that.
-    @MainActor
-    private static func runAppleScript(_ source: String) throws {
-        guard let script = NSAppleScript(source: source) else {
-            throw YConnectError.unsupported("无法构建 iTerm2 启动脚本")
-        }
-        var errorInfo: NSDictionary?
-        script.executeAndReturnError(&errorInfo)
-        if let errorInfo {
-            throw YConnectError.unsupported("AppleScript 启动终端失败：\(errorInfo[NSAppleScript.errorMessage] ?? "未知错误")")
+    /// Claim an unconsumed manifest atomically before revoking its credential.
+    /// A runner that already consumed it owns cleanup; never disrupt that session.
+    static func cancelPendingLaunch(_ plan: AgentLaunchPlan) {
+        let cancelled = plan.root.appendingPathComponent("cancelled.json")
+        guard (try? FileManager.default.moveItem(at: plan.manifestURL, to: cancelled)) != nil else { return }
+        let secret = URL(fileURLWithPath: plan.manifest.secretPath).resolvingSymlinksInPath()
+        if secret.path.hasPrefix(plan.root.resolvingSymlinksInPath().path + "/") {
+            try? FileManager.default.removeItem(at: secret)
         }
     }
 

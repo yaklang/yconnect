@@ -243,7 +243,7 @@ startup.sh 会启用开发隔离模式。也可以直接构建和测试：
     ./script/package-macos.sh --arch amd64 --dmg
     ./script/package-macos.sh --arch universal --dmg
 
-打包依赖 Xcode Command Line Tools 与 ImageMagick。上述命令会创建 `.app`、生成 ICNS、进行 ad-hoc hardened runtime 签名并验证架构，适合开发验证；普通分支和 PR 构建使用这一开发产物，正式 Release 工作流另行完成签名和公证。
+打包依赖 Xcode Command Line Tools 与 ImageMagick。上述命令会创建 `.app`、生成 ICNS、进行 ad-hoc 签名并验证架构，适合开发验证；普通分支和 PR 构建使用这一开发产物。正式 Release 工作流对应用及嵌套框架统一进行 Developer ID 签名，启用 hardened runtime，再完成公证。
 
 正式签名、公证、版本管理及 CI 发布步骤见 [发布说明](RELEASING.md)。
 

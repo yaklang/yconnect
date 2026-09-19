@@ -182,7 +182,7 @@ final class YConnectStore: ObservableObject {
             let plan = try ClientLauncher.prepare(environment: environment, clientID: clientID,
                 model: selected, apiKey: key, directory: directory, autoStart: autoStart,
                 executable: executable, runner: runner, contextWindow: contextWindow)
-            launchMessage = try await ClientLauncher.start(plan)
+            launchMessage = try await ClientLauncher.start(plan, preferredTerminalBundleID: defaultTerminalBundleID)
             YConnectPreferences.launchDirectory = plan.manifest.directory
             markClientUsed(clientID)
         } catch {

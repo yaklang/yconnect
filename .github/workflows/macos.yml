@@ -158,6 +158,25 @@ jobs:
       - name: Verify packaged launcher
         run: python3 script/test-macos-launcher.py "dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
 
+      - name: Verify native Terminal launch and missing-terminal fallback
+        run: |
+          BIN="dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+          "$BIN" --smoke-terminal-launch com.apple.Terminal
+          "$BIN" --smoke-terminal-launch fixture.missing-terminal
+
+      - name: Install supported terminals for signed release acceptance
+        if: inputs.sign-release
+        run: brew install --cask iterm2 ghostty kitty wezterm alacritty
+
+      - name: Verify signed app launches every supported terminal
+        if: inputs.sign-release
+        run: |
+          set -euo pipefail
+          BIN="dist/darwin-universal/Y CONNECT.app/Contents/MacOS/YConnect"
+          for terminal in com.googlecode.iterm2 com.mitchellh.ghostty net.kovidgoyal.kitty com.github.wez.wezterm org.alacritty; do
+            "$BIN" --smoke-terminal-launch "$terminal"
+          done
+
       - name: Create production DMG
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
