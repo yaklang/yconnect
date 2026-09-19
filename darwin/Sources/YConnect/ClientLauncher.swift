@@ -24,6 +24,23 @@ struct AgentLaunchPlan {
     var exitURL: URL { root.appendingPathComponent("exit-status") }
 }
 
+/// A terminal emulator Y CONNECT can hand a launch session to.
+struct TerminalOption: Identifiable, Equatable {
+    let bundleID: String
+    let name: String
+    var id: String { bundleID }
+}
+
+/// Bundle identifiers of the terminals with a supported launch strategy.
+enum TerminalBundleID {
+    static let terminalApp = "com.apple.Terminal"
+    static let iTerm2 = "com.googlecode.iterm2"
+    static let ghostty = "com.mitchellh.ghostty"
+    static let kitty = "net.kovidgoyal.kitty"
+    static let wezTerm = "com.github.wez.wezterm"
+    static let alacritty = "org.alacritty"
+}
+
 enum ClientLauncher {
     static func supports(_ id: ClientID) -> Bool {
         [.openCode, .codex, .claudeCode, .pi, .grokBuild, .hermes, .openClaw].contains(id)
@@ -31,6 +48,98 @@ enum ClientLauncher {
     static func canAutoStart(_ id: ClientID) -> Bool { supports(id) && id != .openClaw }
 
     static func shellQuote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    /// Selectable launch terminals. macOS Terminal stays first: default and fallback.
+    static let terminals: [TerminalOption] = [
+        TerminalOption(bundleID: TerminalBundleID.terminalApp, name: "macOS Terminal"),
+        TerminalOption(bundleID: TerminalBundleID.iTerm2, name: "iTerm2"),
+        TerminalOption(bundleID: TerminalBundleID.ghostty, name: "Ghostty"),
+        TerminalOption(bundleID: TerminalBundleID.kitty, name: "kitty"),
+        TerminalOption(bundleID: TerminalBundleID.wezTerm, name: "WezTerm"),
+        TerminalOption(bundleID: TerminalBundleID.alacritty, name: "Alacritty"),
+    ]
+
+    static func terminal(withBundleID bundleID: String) -> TerminalOption? {
+        terminals.first { $0.bundleID == bundleID }
+    }
+
+    /// App URLs of the installed supported terminals, keyed by bundle identifier.
+    @MainActor
+    static func terminalApplications() -> [String: URL] {
+        var applications: [String: URL] = [:]
+        for terminal in terminals {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: terminal.bundleID) {
+                applications[terminal.bundleID] = url
+            }
+        }
+        return applications
+    }
+
+    /// Picks the launch terminal: the preferred one when it is a known, installed
+    /// choice; macOS Terminal otherwise. Pure so tests cover the fallback rules.
+    static func resolveTerminal(preferredBundleID: String, installedBundleIDs: Set<String>)
+        -> (terminal: TerminalOption, fellBackToTerminalApp: Bool) {
+        if let preferred = terminal(withBundleID: preferredBundleID),
+           installedBundleIDs.contains(preferred.bundleID) {
+            return (preferred, false)
+        }
+        return (terminals[0], true)
+    }
+
+    /// How a terminal receives the session `.command` file.
+    enum TerminalLaunchKind: Equatable {
+        /// Terminal.app runs the `.command` file through NSWorkspace (existing path).
+        case openCommandFile
+        /// iTerm2 is driven by an AppleScript that types the command into a new window.
+        case appleScript(String)
+        /// Ghostty / kitty / WezTerm / Alacritty run a process with explicit argv.
+        case process(URL, [String])
+    }
+
+    /// Launch instructions per terminal, pure so tests can assert exact argv and script text.
+    static func launchKind(for terminal: TerminalOption, application: URL, plan: AgentLaunchPlan) -> TerminalLaunchKind {
+        switch terminal.bundleID {
+        case TerminalBundleID.terminalApp:
+            return .openCommandFile
+        case TerminalBundleID.iTerm2:
+            return .appleScript(iTermAppleScript(commandPath: plan.commandURL.path))
+        case TerminalBundleID.kitty:
+            // macOS app bundles are not on PATH; resolve the bundled binary from the app.
+            return .process(application.appendingPathComponent("Contents/MacOS/kitty"),
+                ["--directory", plan.root.path, "zsh", "-f", plan.commandURL.path])
+        case TerminalBundleID.wezTerm:
+            return .process(URL(fileURLWithPath: "/usr/bin/open"),
+                ["-na", application.path, "--args", "start", "--", "zsh", "-f", plan.commandURL.path])
+        case TerminalBundleID.ghostty, TerminalBundleID.alacritty:
+            return .process(URL(fileURLWithPath: "/usr/bin/open"),
+                ["-na", application.path, "--args", "-e", "zsh", "-f", plan.commandURL.path])
+        default:
+            return .openCommandFile
+        }
+    }
+
+    /// iTerm2: open a window with the default profile, then type the session command
+    /// into it. The first run triggers the macOS automation consent prompt.
+    static func iTermAppleScript(commandPath: String) -> String {
+        let command = "zsh -f \(shellQuote(commandPath))"
+        let literal = command.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return """
+        tell application "iTerm2"
+            activate
+            create window with default profile
+            tell current session of current window
+                write text "\(literal)"
+            end tell
+        end tell
+        """
+    }
+
+    static func launchReadyMessage(autoStart: Bool, model: String, fellBackToTerminalApp: Bool) -> String {
+        var message = autoStart ? "Agent 进程已在新终端启动 · \(model)" : "专用终端已就绪 · 输入 yconnect-agent 启动"
+        if fellBackToTerminalApp { message += " · 未检测到所选终端，已改用 macOS Terminal" }
+        return message
+    }
 
     static func prepare(environment: AppEnvironment, clientID: ClientID, model: ClientModelOption,
                         apiKey: String, directory: String, autoStart: Bool,
@@ -141,20 +250,37 @@ enum ClientLauncher {
     }
 
     @MainActor
-    static func start(_ plan: AgentLaunchPlan) async throws -> String {
-        guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else {
+    static func start(_ plan: AgentLaunchPlan,
+                      preferredTerminalBundleID: String = YConnectPreferences.defaultTerminalBundleID) async throws -> String {
+        let applications = terminalApplications()
+        let resolved = resolveTerminal(preferredBundleID: preferredTerminalBundleID,
+                                       installedBundleIDs: Set(applications.keys))
+        guard let application = applications[resolved.terminal.bundleID] else {
             throw YConnectError.unsupported("未找到 macOS 终端")
         }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        // The macOS 14 SDK's async overlay moves non-Sendable AppKit objects
-        // across actors. Keep the request on the main actor and bridge only
-        // its completion, without transferring NSRunningApplication.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            NSWorkspace.shared.open([plan.commandURL], withApplicationAt: terminal, configuration: configuration) { _, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: ()) }
+        switch launchKind(for: resolved.terminal, application: application, plan: plan) {
+        case .openCommandFile:
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            // The macOS 14 SDK's async overlay moves non-Sendable AppKit objects
+            // across actors. Keep the request on the main actor and bridge only
+            // its completion, without transferring NSRunningApplication.
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                NSWorkspace.shared.open([plan.commandURL], withApplicationAt: application, configuration: configuration) { _, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: ()) }
+                }
             }
+        case .appleScript(let source):
+            try runAppleScript(source)
+        case .process(let executable, let arguments):
+            guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+                throw YConnectError.unsupported("未找到 \(resolved.terminal.name) 的启动程序")
+            }
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = arguments
+            try process.run()
         }
         for _ in 0..<150 {
             try await Task.sleep(for: .milliseconds(200))
@@ -162,10 +288,24 @@ enum ClientLauncher {
                 throw YConnectError.unsupported("Agent 启动后退出（状态 \(code)），请查看终端中的提示")
             }
             if FileManager.default.fileExists(atPath: plan.readyURL.path) {
-                return plan.manifest.autoStart ? "Agent 进程已在新终端启动 · \(plan.manifest.model)" : "专用终端已就绪 · 输入 yconnect-agent 启动"
+                return launchReadyMessage(autoStart: plan.manifest.autoStart, model: plan.manifest.model,
+                                          fellBackToTerminalApp: resolved.fellBackToTerminalApp)
             }
         }
         throw YConnectError.unsupported("终端尚未确认启动，请查看终端窗口。启动请求两分钟后失效")
+    }
+
+    /// Apple event handlers must run on the main actor; `start` already guarantees that.
+    @MainActor
+    private static func runAppleScript(_ source: String) throws {
+        guard let script = NSAppleScript(source: source) else {
+            throw YConnectError.unsupported("无法构建 iTerm2 启动脚本")
+        }
+        var errorInfo: NSDictionary?
+        script.executeAndReturnError(&errorInfo)
+        if let errorInfo {
+            throw YConnectError.unsupported("AppleScript 启动终端失败：\(errorInfo[NSAppleScript.errorMessage] ?? "未知错误")")
+        }
     }
 
     static func write(_ data: Data, to url: URL, permissions: Int = 0o600) throws {

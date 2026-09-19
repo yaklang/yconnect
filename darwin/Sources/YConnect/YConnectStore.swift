@@ -104,6 +104,14 @@ final class YConnectStore: ObservableObject {
     @Published private(set) var recentAccessModelIDs: [String]
     @Published private(set) var rechargeSession: RechargeSession?
     @Published var launchDirectory: String = YConnectPreferences.launchDirectory
+    @Published var defaultTerminalBundleID: String = TerminalBundleID.terminalApp {
+        didSet {
+            guard oldValue != defaultTerminalBundleID, !isPreview else { return }
+            YConnectPreferences.defaultTerminalBundleID = defaultTerminalBundleID
+        }
+    }
+    @Published private(set) var installedTerminalBundleIDs: Set<String> = []
+
     @Published private(set) var launchMessage: String?
 
     let environment: AppEnvironment
@@ -214,6 +222,11 @@ final class YConnectStore: ObservableObject {
             ?? (preview ? StaticClientInstallationDetector() : DefaultClientInstallationDetector())
         let detectedClientIDs = self.installationDetector.installedClientIDs(from: clients.descriptors)
         installedClientIDs = detectedClientIDs
+        installedTerminalBundleIDs = Set(ClientLauncher.terminalApplications().keys)
+        // Normalize unknown or removed preferences to the fallback terminal so the
+        // picker selection always matches a real catalog entry.
+        let preferredTerminal = preview ? TerminalBundleID.terminalApp : YConnectPreferences.defaultTerminalBundleID
+        defaultTerminalBundleID = ClientLauncher.terminal(withBundleID: preferredTerminal)?.bundleID ?? TerminalBundleID.terminalApp
         recentClientIDs = preview ? [] : YConnectPreferences.recentClientIDs
         recentAccessModelIDs = preview ? [] : YConnectPreferences.recentAccessModelIDs
 
@@ -310,6 +323,15 @@ final class YConnectStore: ObservableObject {
         if !installedClientIDs.contains(selectedClientID), let first = installedClientDescriptors.first {
             selectedClientID = first.id
         }
+    }
+
+    func refreshInstalledTerminals() {
+        installedTerminalBundleIDs = Set(ClientLauncher.terminalApplications().keys)
+    }
+
+    var defaultTerminalName: String {
+        ClientLauncher.terminal(withBundleID: defaultTerminalBundleID)?.name
+            ?? ClientLauncher.terminals[0].name
     }
 
     func selectClientForManagement(_ clientID: ClientID) {

@@ -161,6 +161,11 @@ enum YConnectPreferences {
         set { UserDefaults.standard.set(newValue, forKey: prefix + "launch-directory") }
     }
 
+    static var defaultTerminalBundleID: String {
+        get { UserDefaults.standard.string(forKey: prefix + "default-terminal") ?? TerminalBundleID.terminalApp }
+        set { UserDefaults.standard.set(newValue, forKey: prefix + "default-terminal") }
+    }
+
     static var selectedClientID: ClientID {
         get {
             guard let value = UserDefaults.standard.string(forKey: prefix + "selected-client-id"), !value.isEmpty else {
