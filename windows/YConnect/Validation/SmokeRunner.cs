@@ -264,6 +264,9 @@ namespace YConnect.Validation
         }
         private static System.Windows.Rect[] NavigationBounds()
         {
+            // Model refresh can rebuild the sidebar after the idle wait. Measure
+            // the newly created controls before comparing their visible bounds.
+            app.Manager.UpdateLayout();
             return new[] { "overview", "keys", "clients", "models", "checks", "settings" }.Select(id =>
             {
                 var button = Find<Button>(app.Manager, "nav-" + id);
@@ -272,7 +275,7 @@ namespace YConnect.Validation
         }
         private static void SameBounds(System.Windows.Rect[] before, System.Windows.Rect[] after, string context)
         {
-            Assert(before.Length == after.Length && before.Zip(after, (a, b) => Math.Abs(a.X - b.X) < .1 && Math.Abs(a.Y - b.Y) < .1 && Math.Abs(a.Width - b.Width) < .1 && Math.Abs(a.Height - b.Height) < .1).All(value => value), context + " changed layout");
+            Assert(before.Length == after.Length && before.Zip(after, (a, b) => Math.Abs(a.X - b.X) < .1 && Math.Abs(a.Y - b.Y) < .1 && Math.Abs(a.Width - b.Width) < .1 && Math.Abs(a.Height - b.Height) < .1).All(value => value), context + " changed layout: " + string.Join("; ", before.Zip(after, (a, b) => a + " -> " + b)));
         }
         private static async Task VerifyFocusLayout()
         {
