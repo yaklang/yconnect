@@ -166,7 +166,21 @@ jobs:
 
       - name: Install supported terminals for signed release acceptance
         if: inputs.sign-release
-        run: brew install --cask iterm2 ghostty kitty wezterm alacritty
+        run: |
+          set -euo pipefail
+          brew install --cask iterm2 ghostty kitty wezterm
+          # Homebrew disabled the unsigned Alacritty cask. Build the pinned
+          # upstream 0.17.0 source on this disposable runner instead of changing
+          # Gatekeeper settings or removing quarantine from a downloaded app.
+          source_dir="$RUNNER_TEMP/alacritty-source"
+          git clone --depth 1 --branch v0.17.0 https://github.com/alacritty/alacritty.git "$source_dir"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "94e7c8874e526b1e67b349d9ba30ddf81669119e"
+          cargo build --release --locked --manifest-path "$source_dir/Cargo.toml"
+          ditto "$source_dir/extra/osx/Alacritty.app" /Applications/Alacritty.app
+          mkdir -p /Applications/Alacritty.app/Contents/MacOS
+          cp "$source_dir/target/release/alacritty" /Applications/Alacritty.app/Contents/MacOS/alacritty
+          codesign --force --sign - /Applications/Alacritty.app
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Alacritty.app
 
       - name: Verify signed app launches every supported terminal
         if: inputs.sign-release
