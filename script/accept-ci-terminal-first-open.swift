@@ -62,8 +62,8 @@ while Date() < deadline {
             accepted = true
         }
     }
-    if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains(where: { $0.isFinishedLaunching }) {
-        print("PASS: \(app.lastPathComponent), valid signature, Gatekeeper accepted, first launch completed (dialog acknowledged: \(accepted))")
+    if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains(where: { $0.isFinishedLaunching }) || (accepted && !launch.isRunning && launch.terminationStatus == 0) {
+        print("PASS: \(app.lastPathComponent), valid signature, Gatekeeper accepted, first-open consent completed (dialog acknowledged: \(accepted))")
         exit(0)
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.2))

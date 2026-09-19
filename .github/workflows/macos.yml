@@ -79,6 +79,9 @@ jobs:
       - name: Verify first launch of downloaded test terminals
         if: inputs.sign-release
         run: |
+          mkdir -p artifacts
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
+          defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
           swiftc script/accept-ci-terminal-first-open.swift -o "$RUNNER_TEMP/accept-terminal-first-open"
           failed=0
           for app in iTerm Ghostty kitty WezTerm; do
@@ -212,6 +215,10 @@ jobs:
             if ! "$BIN" --smoke-terminal-launch "$terminal"; then
               failed=1
               screencapture -x "artifacts/terminal-failure-$terminal.png" || true
+              if [[ "$terminal" == net.kovidgoyal.kitty ]]; then
+                python3 -c 'import subprocess; subprocess.run(["/Applications/kitty.app/Contents/MacOS/kitty", "--debug-rendering", "/bin/zsh", "-f", "-c", "exit 0"], timeout=15)' > artifacts/terminal-failure-kitty.txt 2>&1 || true
+                cat artifacts/terminal-failure-kitty.txt
+              fi
             fi
           done
           exit "$failed"
@@ -221,7 +228,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terminal-acceptance-diagnostics
-          path: artifacts/terminal-failure-*.png
+          path: artifacts/terminal-failure-*
           if-no-files-found: ignore
           retention-days: 14
 
