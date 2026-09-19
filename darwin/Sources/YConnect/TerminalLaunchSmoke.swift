@@ -47,6 +47,36 @@ enum TerminalLaunchSmoke {
         let status = (try? String(contentsOf: plan.exitURL)) ?? "missing"
         let markerWritten = fm.fileExists(atPath: marker.path)
         let secretPresent = fm.fileExists(atPath: plan.manifest.secretPath)
+        reportSessionProcesses(plan)
         throw YConnectError.unsupported("Terminal fixture did not exit and clean its credential (exit=\(status), marker=\(markerWritten), secret=\(secretPresent))")
+    }
+
+    /// Only this opt-in, fake-credential fixture emits process diagnostics.
+    private static func reportSessionProcesses(_ plan: AgentLaunchPlan) {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid,ppid,pgid,tpgid,stat,sigmask,command"]
+        process.standardOutput = output
+        guard (try? process.run()) != nil else { return }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+        let child = (try? String(contentsOf: plan.readyURL)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        var selected = Set<Int32>()
+        if let child { selected.insert(child) }
+        for row in rows where row.contains(plan.root.path) {
+            if let pid = row.split(whereSeparator: { $0.isWhitespace }).first.flatMap({ Int32($0) }) { selected.insert(pid) }
+        }
+        for _ in 0..<4 {
+            for row in rows {
+                let fields = row.split(whereSeparator: { $0.isWhitespace })
+                if fields.count > 1, let pid = Int32(fields[0]), let parent = Int32(fields[1]), selected.contains(parent) { selected.insert(pid) }
+            }
+        }
+        print("Fixture processes: PID PPID PGID TPGID STAT SIGMASK COMMAND")
+        for row in rows {
+            if let pid = row.split(whereSeparator: { $0.isWhitespace }).first.flatMap({ Int32($0) }), selected.contains(pid) { print(row) }
+        }
     }
 }
