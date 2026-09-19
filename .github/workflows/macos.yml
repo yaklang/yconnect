@@ -193,6 +193,13 @@ jobs:
           defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile -bool true
           defaults write com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection -int 0
           trap 'defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile; defaults delete com.googlecode.iterm2 NoSyncConfirmRunOpenFile_selection' EXIT
+          swiftc script/accept-ci-terminal-first-open.swift -o "$RUNNER_TEMP/accept-terminal-first-open"
+          for app in iTerm Ghostty kitty WezTerm; do
+            if ! "$RUNNER_TEMP/accept-terminal-first-open" "/Applications/$app.app"; then
+              screencapture -x "artifacts/terminal-failure-first-open-$app.png" || true
+              exit 1
+            fi
+          done
           failed=0
           for terminal in com.googlecode.iterm2 com.mitchellh.ghostty net.kovidgoyal.kitty com.github.wez.wezterm org.alacritty; do
             echo "Testing native terminal: $terminal"
