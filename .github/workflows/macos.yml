@@ -236,6 +236,9 @@ jobs:
             if ! "$BIN" --smoke-terminal-launch "$terminal"; then
               failed=1
               screencapture -x "artifacts/terminal-failure-$terminal.png" || true
+              for log in "$HOME"/.local/share/wezterm/wezterm-gui-log-* "$HOME"/Library/Logs/DiagnosticReports/YConnect*.ips; do
+                if [[ -f "$log" ]]; then tail -c 24000 "$log" > "artifacts/terminal-failure-$(basename "$log")"; fi
+              done
               if [[ "$terminal" == net.kovidgoyal.kitty ]]; then
                 python3 -c 'import subprocess; subprocess.run(["/Applications/kitty.app/Contents/MacOS/kitty", "--debug-rendering", "/bin/zsh", "-f", "-c", "exit 0"], timeout=15)' > artifacts/terminal-failure-kitty.txt 2>&1 || true
                 cat artifacts/terminal-failure-kitty.txt

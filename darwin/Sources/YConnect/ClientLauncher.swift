@@ -104,8 +104,9 @@ enum ClientLauncher {
             return .process(application.appendingPathComponent("Contents/MacOS/kitty"),
                 ["--directory", plan.root.path, "/bin/zsh", "-f", plan.commandURL.path])
         case TerminalBundleID.wezTerm:
+            // Keep the session independent of an already-running GUI/mux.
             return .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", application.path, "--args", "start", "--", "/bin/zsh", "-f", plan.commandURL.path])
+                ["-na", application.path, "--args", "start", "--always-new-process", "--", "/bin/zsh", "-f", plan.commandURL.path])
         case TerminalBundleID.ghostty, TerminalBundleID.alacritty:
             return .process(URL(fileURLWithPath: "/usr/bin/open"),
                 ["-na", application.path, "--args", "-e", "/bin/zsh", "-f", plan.commandURL.path])

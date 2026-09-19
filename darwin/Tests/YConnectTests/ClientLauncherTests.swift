@@ -239,7 +239,7 @@ final class ClientLauncherTests: XCTestCase {
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.wezTerm)),
             application: app, plan: plan),
             .process(URL(fileURLWithPath: "/usr/bin/open"),
-                ["-na", app.path, "--args", "start", "--", "/bin/zsh", "-f", command]))
+                ["-na", app.path, "--args", "start", "--always-new-process", "--", "/bin/zsh", "-f", command]))
         XCTAssertEqual(ClientLauncher.launchKind(
             for: try XCTUnwrap(ClientLauncher.terminal(withBundleID: TerminalBundleID.alacritty)),
             application: app, plan: plan),

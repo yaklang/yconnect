@@ -24,7 +24,7 @@ enum TerminalLaunchSmoke {
         [[ "$PWD" == \(ClientLauncher.shellQuote(root.resolvingSymlinksInPath().path)) ]] || exit 43
         print -r -- 'Y CONNECT terminal smoke: isolated model, key, directory and TTY verified'
         print -r -- PASS > \(ClientLauncher.shellQuote(marker.path))
-        sleep 2
+        sleep 4
         """
         try ClientLauncher.write(Data(script.utf8), to: executable, permissions: 0o700)
         let runner = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
@@ -65,7 +65,7 @@ enum TerminalLaunchSmoke {
         let child = (try? String(contentsOf: plan.readyURL)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         var selected = Set<Int32>()
         if let child { selected.insert(child) }
-        for row in rows where row.contains(plan.root.path) {
+        for row in rows where row.contains(plan.root.lastPathComponent) {
             if let pid = row.split(whereSeparator: { $0.isWhitespace }).first.flatMap({ Int32($0) }) { selected.insert(pid) }
         }
         for _ in 0..<4 {
@@ -74,7 +74,7 @@ enum TerminalLaunchSmoke {
                 if fields.count > 1, let pid = Int32(fields[0]), let parent = Int32(fields[1]), selected.contains(parent) { selected.insert(pid) }
             }
         }
-        print("Fixture processes: PID PPID PGID TPGID STAT SIGMASK COMMAND")
+        print("Fixture processes (agent PID \(child ?? -1), \(rows.count) rows): PID PPID PGID TPGID STAT SIGMASK COMMAND")
         for row in rows {
             if let pid = row.split(whereSeparator: { $0.isWhitespace }).first.flatMap({ Int32($0) }), selected.contains(pid) { print(row) }
         }
